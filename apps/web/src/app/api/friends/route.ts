@@ -32,18 +32,21 @@ export async function GET() {
     }),
   ])
 
+  type SentRecord = typeof sent[number]
+  type ReceivedRecord = typeof received[number]
+
   const friends = [
-    ...sent.filter((f) => f.status === 'accepted').map((f) => ({ ...f.addressee, friendshipId: f.id })),
-    ...received.filter((f) => f.status === 'accepted').map((f) => ({ ...f.requester, friendshipId: f.id })),
+    ...sent.filter((f: SentRecord) => f.status === 'accepted').map((f: SentRecord) => ({ ...f.addressee, friendshipId: f.id })),
+    ...received.filter((f: ReceivedRecord) => f.status === 'accepted').map((f: ReceivedRecord) => ({ ...f.requester, friendshipId: f.id })),
   ]
 
   const incoming = received
-    .filter((f) => f.status === 'pending')
-    .map((f) => ({ ...f.requester, friendshipId: f.id }))
+    .filter((f: ReceivedRecord) => f.status === 'pending')
+    .map((f: ReceivedRecord) => ({ ...f.requester, friendshipId: f.id }))
 
   const outgoing = sent
-    .filter((f) => f.status === 'pending')
-    .map((f) => ({ ...f.addressee, friendshipId: f.id }))
+    .filter((f: SentRecord) => f.status === 'pending')
+    .map((f: SentRecord) => ({ ...f.addressee, friendshipId: f.id }))
 
   return NextResponse.json({ friends, incoming, outgoing })
 }
