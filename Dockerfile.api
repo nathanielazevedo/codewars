@@ -2,21 +2,24 @@ FROM node:20-alpine AS base
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /app
 
-# Copy workspace manifests + prisma schema (needed for db postinstall)
+# Copy workspace manifests
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/
 COPY apps/api/package.json apps/api/
 COPY packages/db/package.json packages/db/
-COPY packages/db/prisma packages/db/prisma
 COPY packages/types/package.json packages/types/
 
-RUN pnpm install --frozen-lockfile
+# Install deps without running postinstall (schema not copied yet)
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
 # Copy sources (tsx runs TS directly — no build step)
 COPY packages/db packages/db
 COPY packages/types packages/types
 COPY apps/api apps/api
 COPY tsconfig.base.json ./
+
+# Generate Prisma client now that schema is in place
+RUN pnpm --filter @code-arena/db exec prisma generate
 
 ENV NODE_ENV=production
 ENV PORT=3001

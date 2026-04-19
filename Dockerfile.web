@@ -8,13 +8,13 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/
 COPY apps/api/package.json apps/api/
 COPY packages/db/package.json packages/db/
-COPY packages/db/prisma packages/db/prisma
 COPY packages/types/package.json packages/types/
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
-# Prisma client is generated via db package's postinstall
+# Copy schema + generate Prisma client explicitly
 FROM deps AS prisma
 COPY packages/db packages/db
+RUN pnpm --filter @code-arena/db exec prisma generate
 
 # Build shared packages
 FROM prisma AS build-shared
