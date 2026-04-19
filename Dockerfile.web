@@ -37,7 +37,6 @@ FROM base AS web
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build-web /app/apps/web/.next ./apps/web/.next
-COPY --from=build-web /app/apps/web/public ./apps/web/public
 COPY --from=build-web /app/apps/web/package.json ./apps/web/
 COPY --from=build-web /app/apps/web/next.config.mjs ./apps/web/
 COPY --from=prisma /app/packages/db ./packages/db
