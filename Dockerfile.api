@@ -3,7 +3,7 @@ RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /app
 
 # Copy workspace manifests + prisma schema (needed for db postinstall)
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY apps/web/package.json apps/web/
 COPY apps/api/package.json apps/api/
 COPY packages/db/package.json packages/db/
