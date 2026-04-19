@@ -75,6 +75,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@auth/core':
+        specifier: 0.35.3
+        version: 0.35.3
       '@code-arena/db':
         specifier: workspace:*
         version: link:../../packages/db

@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@auth/core": "0.35.3",
     "@code-arena/db": "workspace:*",
     "@code-arena/types": "workspace:*",
     "class-variance-authority": "^0.7.1",
