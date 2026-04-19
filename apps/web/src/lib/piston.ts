@@ -4,8 +4,8 @@ const PISTON_URL = process.env.PISTON_URL ?? 'http://localhost:2000'
 const PISTON_SECRET = process.env.PISTON_SECRET
 
 const LANGUAGE_VERSIONS: Record<Language, { language: string; version: string }> = {
-  javascript: { language: 'node', version: '20.11.1' },
-  python: { language: 'python', version: '3.12.0' },
+  javascript: { language: 'javascript', version: '*' },
+  python: { language: 'python', version: '*' },
 }
 
 export type ExecutionStatus =
