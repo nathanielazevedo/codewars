@@ -28,6 +28,7 @@ import { WEAPONS, type WeaponType, type PlayerGameState } from '@code-arena/type
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { CodeEditor } from '@/components/code-editor'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
@@ -504,14 +505,15 @@ export function MatchClient({
               )}
             </Button>
           </div>
-          <div className="relative flex-1">
-            <textarea
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              disabled={editorDisabled}
-              spellCheck={false}
-              className="absolute inset-0 px-5 py-4 bg-transparent text-sm font-mono leading-relaxed resize-none focus:outline-none disabled:opacity-60 selection:bg-primary/30"
-            />
+          <div className="relative flex-1 min-h-0 overflow-hidden">
+            <div className="absolute inset-0">
+              <CodeEditor
+                value={code}
+                onChange={setCode}
+                language={language}
+                disabled={editorDisabled}
+              />
+            </div>
             {/* Screen Lock overlay */}
             {hasScreenLock && (
               <div className="absolute inset-0 bg-background/95 backdrop-blur-md z-10 flex items-center justify-center animate-fade-in">

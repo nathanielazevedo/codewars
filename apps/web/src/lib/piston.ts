@@ -1,10 +1,11 @@
 import type { Language } from './problems'
 
 const PISTON_URL = process.env.PISTON_URL ?? 'http://localhost:2000'
+const PISTON_SECRET = process.env.PISTON_SECRET
 
 const LANGUAGE_VERSIONS: Record<Language, { language: string; version: string }> = {
-  javascript: { language: 'javascript', version: '*' },
-  python: { language: 'python', version: '*' },
+  javascript: { language: 'node', version: '20.11.1' },
+  python: { language: 'python', version: '3.12.0' },
 }
 
 export type ExecutionStatus =
@@ -64,7 +65,10 @@ export async function runTestCase(params: {
 
   const res = await fetch(`${PISTON_URL}/api/v2/execute`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(PISTON_SECRET ? { 'X-Piston-Secret': PISTON_SECRET } : {}),
+    },
     body: JSON.stringify({
       language: lang.language,
       version: lang.version,
