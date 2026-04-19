@@ -2,34 +2,23 @@ FROM node:20-alpine AS base
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /app
 
-# Install dependencies
-FROM base AS deps
+# Copy workspace manifests + prisma schema (needed for db postinstall)
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/
 COPY apps/api/package.json apps/api/
 COPY packages/db/package.json packages/db/
+COPY packages/db/prisma packages/db/prisma
 COPY packages/types/package.json packages/types/
-RUN pnpm install
 
-# Generate Prisma client + build shared
-FROM deps AS build
+RUN pnpm install --frozen-lockfile
+
+# Copy sources (tsx runs TS directly — no build step)
 COPY packages/db packages/db
 COPY packages/types packages/types
 COPY apps/api apps/api
 COPY tsconfig.base.json ./
-RUN pnpm --filter @code-arena/db exec prisma generate
-RUN pnpm --filter @code-arena/api build
 
-# API production image
-FROM base AS api
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=build /app/apps/api/dist ./apps/api/dist
-COPY --from=build /app/apps/api/package.json ./apps/api/
-COPY --from=build /app/packages/db ./packages/db
-COPY --from=build /app/packages/types ./packages/types
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 ENV NODE_ENV=production
 ENV PORT=3001
 EXPOSE ${PORT}
-CMD ["node", "apps/api/dist/index.js"]
+CMD ["pnpm", "--filter", "@code-arena/api", "start"]
