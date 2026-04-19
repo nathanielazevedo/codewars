@@ -47,7 +47,7 @@ Output:
 }
 
 // ---- stdin handler (don't modify) ----
-const lines = require('fs').readFileSync('/dev/stdin', 'utf8').trim().split('\\n')
+const lines = require('fs').readFileSync(0, 'utf8').trim().split('\\n')
 const nums = JSON.parse(lines[0])
 const target = parseInt(lines[1], 10)
 console.log(JSON.stringify(twoSum(nums, target)))
