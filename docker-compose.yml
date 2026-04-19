@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: codearena-postgres
+    environment:
+      POSTGRES_USER: codearena
+      POSTGRES_PASSWORD: codearena
+      POSTGRES_DB: codearena
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codearena"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: codearena-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ---- Piston (code execution engine) --------------------------------
+  piston:
+    image: ghcr.io/engineer-man/piston
+    container_name: codearena-piston
+    privileged: true
+    ports:
+      - "2000:2000"
+    restart: unless-stopped
+    tmpfs:
+      - /piston/jobs:exec,size=256M
+
+volumes:
+  postgres-data:
+  redis-data:

@@ -1,0 +1,150 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(uuid())
+  username    String   @unique @db.VarChar(32)
+  email       String   @unique @db.VarChar(255)
+  avatarUrl   String?  @map("avatar_url")
+  provider    String   @db.VarChar(16)
+  providerId  String   @map("provider_id") @db.VarChar(255)
+  bio         String?  @db.VarChar(280)
+  githubUrl   String?  @map("github_url") @db.VarChar(255)
+  linkedinUrl String?  @map("linkedin_url") @db.VarChar(255)
+  elo         Int      @default(1200)
+  xp          Int      @default(0)
+  rankTier    String   @default("bronze") @map("rank_tier") @db.VarChar(16)
+  isAdmin     Boolean  @default(false) @map("is_admin")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  matchPlayers    MatchPlayer[]
+  submissions     Submission[]
+  attacks         WeaponEvent[]  @relation("attacker")
+  targeted        WeaponEvent[]  @relation("target")
+  sentRequests    Friendship[]   @relation("requester")
+  receivedRequests Friendship[]  @relation("addressee")
+
+  @@unique([provider, providerId])
+  @@map("users")
+}
+
+model Friendship {
+  id          String   @id @default(uuid())
+  requesterId String   @map("requester_id")
+  addresseeId String   @map("addressee_id")
+  status      String   @default("pending") @db.VarChar(16) // pending | accepted | rejected
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  requester User @relation("requester", fields: [requesterId], references: [id])
+  addressee User @relation("addressee", fields: [addresseeId], references: [id])
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId, status])
+  @@map("friendships")
+}
+
+model Problem {
+  id            String   @id @default(uuid())
+  title         String   @db.VarChar(255)
+  slug          String   @unique @db.VarChar(255)
+  description   String
+  difficulty    String   @db.VarChar(8)
+  tags          String[] @default([])
+  starterCode   Json     @default("{}") @map("starter_code")
+  testCases     Json     @map("test_cases")
+  timeLimitMs   Int      @default(2000) @map("time_limit_ms")
+  memoryLimitMb Int      @default(256) @map("memory_limit_mb")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+
+  submissions Submission[]
+
+  @@index([difficulty])
+  @@map("problems")
+}
+
+model Match {
+  id         String    @id @default(uuid())
+  roomCode   String?   @unique @map("room_code") @db.VarChar(8)
+  status     String    @default("waiting") @db.VarChar(16)
+  mode       String    @default("public") @db.VarChar(16)
+  problemIds String[]  @default([]) @map("problem_ids")
+  maxPlayers Int       @default(4) @map("max_players")
+  startedAt  DateTime? @map("started_at")
+  endedAt    DateTime? @map("ended_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  players      MatchPlayer[]
+  submissions  Submission[]
+  weaponEvents WeaponEvent[]
+
+  @@index([status])
+  @@map("matches")
+}
+
+model MatchPlayer {
+  id             String   @id @default(uuid())
+  matchId        String   @map("match_id")
+  userId         String   @map("user_id")
+  score          Int      @default(0)
+  ap             Int      @default(0)
+  problemsSolved Int      @default(0) @map("problems_solved")
+  placement      Int?
+  eloDelta       Int?     @map("elo_delta")
+  joinedAt       DateTime @default(now()) @map("joined_at")
+
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@unique([matchId, userId])
+  @@index([matchId])
+  @@index([userId])
+  @@map("match_players")
+}
+
+model Submission {
+  id          String   @id @default(uuid())
+  matchId     String   @map("match_id")
+  userId      String   @map("user_id")
+  problemId   String   @map("problem_id")
+  language    String   @db.VarChar(32)
+  code        String
+  status      String   @default("pending") @db.VarChar(32)
+  runtimeMs   Int?     @map("runtime_ms")
+  memoryKb    Int?     @map("memory_kb")
+  submittedAt DateTime @default(now()) @map("submitted_at")
+
+  match   Match   @relation(fields: [matchId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+  problem Problem @relation(fields: [problemId], references: [id])
+
+  @@index([matchId, userId])
+  @@index([userId, submittedAt(sort: Desc)])
+  @@map("submissions")
+}
+
+model WeaponEvent {
+  id         String   @id @default(uuid())
+  matchId    String   @map("match_id")
+  attackerId String   @map("attacker_id")
+  targetId   String   @map("target_id")
+  weaponType String   @map("weapon_type") @db.VarChar(32)
+  apCost     Int      @map("ap_cost")
+  blocked    Boolean  @default(false)
+  firedAt    DateTime @default(now()) @map("fired_at")
+
+  match    Match @relation(fields: [matchId], references: [id])
+  attacker User  @relation("attacker", fields: [attackerId], references: [id])
+  target   User  @relation("target", fields: [targetId], references: [id])
+
+  @@index([matchId])
+  @@map("weapon_events")
+}

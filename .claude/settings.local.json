@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker exec *)",
+      "Bash(curl -s http://localhost:2358/languages)",
+      "Bash(pnpm --filter @code-arena/web add class-variance-authority clsx tailwind-merge lucide-react tailwindcss-animate)",
+      "Bash(pnpm typecheck *)",
+      "Bash(pnpm --filter @code-arena/api add nanoid)"
+    ]
+  }
+}

@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "problems" ADD COLUMN     "starter_code" JSONB NOT NULL DEFAULT '{}',
+ADD COLUMN     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;

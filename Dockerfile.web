@@ -1,0 +1,49 @@
+FROM node:20-alpine AS base
+RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
+WORKDIR /app
+
+# Install dependencies
+FROM base AS deps
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/web/package.json apps/web/
+COPY apps/api/package.json apps/api/
+COPY packages/db/package.json packages/db/
+COPY packages/types/package.json packages/types/
+RUN pnpm install --frozen-lockfile
+
+# Generate Prisma client
+FROM deps AS prisma
+COPY packages/db packages/db
+RUN pnpm --filter @code-arena/db exec prisma generate
+
+# Build shared packages
+FROM prisma AS build-shared
+COPY packages/types packages/types
+COPY tsconfig.base.json ./
+
+# Build web app
+FROM build-shared AS build-web
+COPY apps/web apps/web
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ARG DATABASE_URL
+ENV DATABASE_URL=${DATABASE_URL}
+ARG REDIS_URL
+ENV REDIS_URL=${REDIS_URL}
+RUN pnpm --filter @code-arena/web build
+
+# Web production image
+FROM base AS web
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=build-web /app/apps/web/.next ./apps/web/.next
+COPY --from=build-web /app/apps/web/public ./apps/web/public
+COPY --from=build-web /app/apps/web/package.json ./apps/web/
+COPY --from=build-web /app/apps/web/next.config.mjs ./apps/web/
+COPY --from=prisma /app/packages/db ./packages/db
+COPY --from=build-shared /app/packages/types ./packages/types
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+ENV NODE_ENV=production
+ENV PORT=3000
+EXPOSE ${PORT}
+CMD pnpm --filter @code-arena/web exec next start -p ${PORT}
