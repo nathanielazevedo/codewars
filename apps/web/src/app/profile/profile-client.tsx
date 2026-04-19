@@ -86,9 +86,24 @@ export default function ProfileClient() {
           </span>
         </Link>
         <nav className="flex items-center gap-4 text-sm">
-          <Link href="/leaderboard" className="text-muted-foreground hover:text-foreground transition-colors">Leaderboard</Link>
-          <Link href="/friends" className="text-muted-foreground hover:text-foreground transition-colors">Friends</Link>
-          <Link href={`/u/${profile.username}`} className="text-muted-foreground hover:text-foreground transition-colors">My Profile</Link>
+          <Link
+            href="/leaderboard"
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Leaderboard
+          </Link>
+          <Link
+            href="/friends"
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Friends
+          </Link>
+          <Link
+            href={`/u/${profile.username}`}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            My Profile
+          </Link>
         </nav>
       </header>
 
@@ -96,14 +111,18 @@ export default function ProfileClient() {
         <h1 className="font-display font-bold text-2xl mb-6">Edit Profile</h1>
 
         {message && (
-          <div className={`mb-4 rounded-lg px-4 py-2.5 text-sm ${message.type === 'success' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+          <div
+            className={`mb-4 rounded-lg px-4 py-2.5 text-sm ${message.type === 'success' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}
+          >
             {message.text}
           </div>
         )}
 
         <form onSubmit={handleSave} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium mb-1.5 text-muted-foreground">Username</label>
+            <label className="block text-sm font-medium mb-1.5 text-muted-foreground">
+              Username
+            </label>
             <input
               type="text"
               value={form.username}
@@ -113,7 +132,9 @@ export default function ProfileClient() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1.5 text-muted-foreground">Avatar URL</label>
+            <label className="block text-sm font-medium mb-1.5 text-muted-foreground">
+              Avatar URL
+            </label>
             <input
               type="url"
               value={form.avatarUrl}
@@ -122,7 +143,11 @@ export default function ProfileClient() {
               className="w-full rounded-lg border border-border bg-card/60 px-3.5 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
             {form.avatarUrl && (
-              <img src={form.avatarUrl} alt="Preview" className="mt-2 size-16 rounded-full object-cover border border-border" />
+              <img
+                src={form.avatarUrl}
+                alt="Preview"
+                className="mt-2 size-16 rounded-full object-cover border border-border"
+              />
             )}
           </div>
 
@@ -140,7 +165,9 @@ export default function ProfileClient() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1.5 text-muted-foreground">GitHub URL</label>
+            <label className="block text-sm font-medium mb-1.5 text-muted-foreground">
+              GitHub URL
+            </label>
             <input
               type="url"
               value={form.githubUrl}
@@ -151,7 +178,9 @@ export default function ProfileClient() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1.5 text-muted-foreground">LinkedIn URL</label>
+            <label className="block text-sm font-medium mb-1.5 text-muted-foreground">
+              LinkedIn URL
+            </label>
             <input
               type="url"
               value={form.linkedinUrl}

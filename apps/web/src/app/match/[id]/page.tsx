@@ -14,11 +14,5 @@ export default async function MatchPage({ params }: { params: { id: string } }) 
   const problem = await getProblem(match.problemId)
   if (!problem) notFound()
 
-  return (
-    <MatchClient
-      initialMatch={match}
-      problem={problem}
-      currentUserId={session.user.id}
-    />
-  )
+  return <MatchClient initialMatch={match} problem={problem} currentUserId={session.user.id} />
 }

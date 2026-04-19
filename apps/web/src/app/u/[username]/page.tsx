@@ -50,10 +50,25 @@ export default async function PublicProfilePage({
           </span>
         </Link>
         <nav className="flex items-center gap-4 text-sm">
-          <Link href="/leaderboard" className="text-muted-foreground hover:text-foreground transition-colors">Leaderboard</Link>
-          <Link href="/friends" className="text-muted-foreground hover:text-foreground transition-colors">Friends</Link>
+          <Link
+            href="/leaderboard"
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Leaderboard
+          </Link>
+          <Link
+            href="/friends"
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Friends
+          </Link>
           {isOwn && (
-            <Link href="/profile" className="text-muted-foreground hover:text-foreground transition-colors">Edit Profile</Link>
+            <Link
+              href="/profile"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Edit Profile
+            </Link>
           )}
         </nav>
       </header>
@@ -61,7 +76,11 @@ export default async function PublicProfilePage({
       <main className="max-w-2xl mx-auto px-6 py-10">
         <div className="flex items-start gap-6 mb-8">
           {user.avatarUrl ? (
-            <img src={user.avatarUrl} alt={user.username} className="size-20 rounded-full object-cover border-2 border-border" />
+            <img
+              src={user.avatarUrl}
+              alt={user.username}
+              className="size-20 rounded-full object-cover border-2 border-border"
+            />
           ) : (
             <div className="size-20 rounded-full bg-gradient-to-br from-primary/40 to-secondary/40 grid place-items-center text-2xl font-bold border-2 border-border">
               {user.username[0].toUpperCase()}
@@ -76,15 +95,27 @@ export default async function PublicProfilePage({
               <span>·</span>
               <span>{user.xp} XP</span>
             </div>
-            {user.bio && <p className="mt-3 text-sm text-muted-foreground leading-relaxed">{user.bio}</p>}
+            {user.bio && (
+              <p className="mt-3 text-sm text-muted-foreground leading-relaxed">{user.bio}</p>
+            )}
             <div className="flex items-center gap-3 mt-3">
               {user.githubUrl && (
-                <a href={user.githubUrl} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground transition-colors">
+                <a
+                  href={user.githubUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
                   <Github className="size-4" />
                 </a>
               )}
               {user.linkedinUrl && (
-                <a href={user.linkedinUrl} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground transition-colors">
+                <a
+                  href={user.linkedinUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
                   <Linkedin className="size-4" />
                 </a>
               )}
@@ -93,16 +124,39 @@ export default async function PublicProfilePage({
         </div>
 
         <div className="grid grid-cols-3 gap-3">
-          <StatCard icon={<Trophy className="size-4 text-arena-amber" />} label="Matches" value={user._count.matchPlayers} />
-          <StatCard icon={<Swords className="size-4 text-primary" />} label="Solved" value={user._count.submissions} />
-          <StatCard icon={<Calendar className="size-4 text-secondary" />} label="Joined" value={new Date(user.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} />
+          <StatCard
+            icon={<Trophy className="size-4 text-arena-amber" />}
+            label="Matches"
+            value={user._count.matchPlayers}
+          />
+          <StatCard
+            icon={<Swords className="size-4 text-primary" />}
+            label="Solved"
+            value={user._count.submissions}
+          />
+          <StatCard
+            icon={<Calendar className="size-4 text-secondary" />}
+            label="Joined"
+            value={new Date(user.createdAt).toLocaleDateString('en-US', {
+              month: 'short',
+              year: 'numeric',
+            })}
+          />
         </div>
       </main>
     </div>
   )
 }
 
-function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
+function StatCard({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string | number
+}) {
   return (
     <div className="rounded-lg border border-border/80 bg-card/40 backdrop-blur-sm p-4 text-center">
       <div className="flex justify-center mb-1.5">{icon}</div>

@@ -160,38 +160,61 @@ export function MatchClient({
         }))
       })
 
-      socket.on('weapon:incoming', ({ weaponType, attackerId, attackerUsername, targetId, duration }: {
-        weaponType: WeaponType
-        attackerId: string
-        attackerUsername: string
-        targetId: string
-        duration: number
-      }) => {
-        if (targetId !== currentUserId) {
-          const targetName = match.players.find((p) => p.userId === targetId)?.username ?? 'Someone'
-          addNotification(`${attackerUsername} used ${WEAPON_LABEL[weaponType]} on ${targetName}`, 'info')
-          return
-        }
-        addNotification(`${attackerUsername} hit you with ${WEAPON_LABEL[weaponType]}!`, 'incoming')
-        applyClientEffect(weaponType, duration)
-      })
+      socket.on(
+        'weapon:incoming',
+        ({
+          weaponType,
+          attackerId,
+          attackerUsername,
+          targetId,
+          duration,
+        }: {
+          weaponType: WeaponType
+          attackerId: string
+          attackerUsername: string
+          targetId: string
+          duration: number
+        }) => {
+          if (targetId !== currentUserId) {
+            const targetName =
+              match.players.find((p) => p.userId === targetId)?.username ?? 'Someone'
+            addNotification(
+              `${attackerUsername} used ${WEAPON_LABEL[weaponType]} on ${targetName}`,
+              'info',
+            )
+            return
+          }
+          addNotification(
+            `${attackerUsername} hit you with ${WEAPON_LABEL[weaponType]}!`,
+            'incoming',
+          )
+          applyClientEffect(weaponType, duration)
+        },
+      )
 
-      socket.on('weapon:blocked', ({ weaponType, attackerId, targetId }: {
-        weaponType: WeaponType
-        attackerId: string
-        targetId: string
-      }) => {
-        if (targetId === currentUserId) {
-          addNotification(`Your shield blocked a ${WEAPON_LABEL[weaponType]}!`, 'blocked')
-          setMatch((m) => ({
-            ...m,
-            playerStates: {
-              ...m.playerStates,
-              [currentUserId]: { ...m.playerStates[currentUserId], shield: false },
-            },
-          }))
-        }
-      })
+      socket.on(
+        'weapon:blocked',
+        ({
+          weaponType,
+          attackerId,
+          targetId,
+        }: {
+          weaponType: WeaponType
+          attackerId: string
+          targetId: string
+        }) => {
+          if (targetId === currentUserId) {
+            addNotification(`Your shield blocked a ${WEAPON_LABEL[weaponType]}!`, 'blocked')
+            setMatch((m) => ({
+              ...m,
+              playerStates: {
+                ...m.playerStates,
+                [currentUserId]: { ...m.playerStates[currentUserId], shield: false },
+              },
+            }))
+          }
+        },
+      )
 
       socket.on('player:ap_update', ({ userId, ap: newAp }: { userId: string; ap: number }) => {
         setMatch((m) => ({
@@ -214,12 +237,19 @@ export function MatchClient({
     switch (weaponType) {
       case 'freeze': {
         const expiresAt = Date.now() + (duration || 20000)
-        setActiveEffects((prev) => [...prev, { weaponType: 'freeze', attackerUsername: '', expiresAt }])
+        setActiveEffects((prev) => [
+          ...prev,
+          { weaponType: 'freeze', attackerUsername: '', expiresAt },
+        ])
         setMatch((m) => ({
           ...m,
           playerStates: {
             ...m.playerStates,
-            [currentUserId]: { ...m.playerStates[currentUserId], frozen: true, frozenUntil: expiresAt },
+            [currentUserId]: {
+              ...m.playerStates[currentUserId],
+              frozen: true,
+              frozenUntil: expiresAt,
+            },
           },
         }))
         setTimeout(() => {
@@ -235,7 +265,10 @@ export function MatchClient({
       }
       case 'screen_lock': {
         const expiresAt = Date.now() + (duration || 10000)
-        setActiveEffects((prev) => [...prev, { weaponType: 'screen_lock', attackerUsername: '', expiresAt }])
+        setActiveEffects((prev) => [
+          ...prev,
+          { weaponType: 'screen_lock', attackerUsername: '', expiresAt },
+        ])
         break
       }
       case 'shuffle': {
@@ -333,8 +366,12 @@ export function MatchClient({
     })
   }
 
-  const hasScreenLock = activeEffects.some((e) => e.weaponType === 'screen_lock' && e.expiresAt > Date.now())
-  const hasFreezeEffect = activeEffects.some((e) => e.weaponType === 'freeze' && e.expiresAt > Date.now())
+  const hasScreenLock = activeEffects.some(
+    (e) => e.weaponType === 'screen_lock' && e.expiresAt > Date.now(),
+  )
+  const hasFreezeEffect = activeEffects.some(
+    (e) => e.weaponType === 'freeze' && e.expiresAt > Date.now(),
+  )
   const editorDisabled = isOver || isFrozen || hasFreezeEffect
 
   return (
@@ -406,13 +443,14 @@ export function MatchClient({
         <section className="w-1/2 border-r border-border/80 overflow-hidden flex flex-col">
           <div className="px-8 pt-7 pb-4">
             <div className="flex items-center gap-2 mb-3">
-              <Badge variant={DIFF_VARIANT[problem.difficulty] ?? 'default'} className="uppercase font-semibold">
+              <Badge
+                variant={DIFF_VARIANT[problem.difficulty] ?? 'default'}
+                className="uppercase font-semibold"
+              >
                 {problem.difficulty}
               </Badge>
             </div>
-            <h1 className="font-display text-3xl font-bold tracking-tight mb-1">
-              {problem.title}
-            </h1>
+            <h1 className="font-display text-3xl font-bold tracking-tight mb-1">{problem.title}</h1>
           </div>
           <div className="flex-1 overflow-auto px-8 pb-8">
             <div className="prose prose-invert prose-sm max-w-none text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">
@@ -526,7 +564,9 @@ export function MatchClient({
       </div>
 
       {/* Match end overlay */}
-      {isOver && <EndOverlay didWin={didWin} winnerName={winnerName} onHome={() => router.push('/')} />}
+      {isOver && (
+        <EndOverlay didWin={didWin} winnerName={winnerName} onHome={() => router.push('/')} />
+      )}
     </main>
   )
 }
@@ -644,7 +684,9 @@ function PlayerPills({
             className={cn(
               'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs border transition-all',
               isTarget && 'bg-destructive/15 border-destructive/70 text-destructive ring-glow-rose',
-              !isTarget && solved && 'bg-arena-emerald/10 border-arena-emerald/40 text-arena-emerald',
+              !isTarget &&
+                solved &&
+                'bg-arena-emerald/10 border-arena-emerald/40 text-arena-emerald',
               !isTarget && !solved && me && 'bg-primary/10 border-primary/40 text-primary',
               !isTarget &&
                 !solved &&
@@ -784,9 +826,7 @@ function EndOverlay({
             )}
           </h2>
           <p className="text-muted-foreground text-sm mb-7">
-            {didWin
-              ? 'First to pass all tests. Nice work.'
-              : 'They solved it first. Rematch?'}
+            {didWin ? 'First to pass all tests. Nice work.' : 'They solved it first. Rematch?'}
           </p>
           <Button onClick={onHome} variant="primary" size="lg" className="w-full">
             <Home />

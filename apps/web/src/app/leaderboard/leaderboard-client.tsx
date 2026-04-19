@@ -40,8 +40,18 @@ export default function LeaderboardClient() {
           </span>
         </Link>
         <nav className="flex items-center gap-4 text-sm">
-          <Link href="/friends" className="text-muted-foreground hover:text-foreground transition-colors">Friends</Link>
-          <Link href="/profile" className="text-muted-foreground hover:text-foreground transition-colors">Profile</Link>
+          <Link
+            href="/friends"
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Friends
+          </Link>
+          <Link
+            href="/profile"
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Profile
+          </Link>
         </nav>
       </header>
 
@@ -76,9 +86,16 @@ export default function LeaderboardClient() {
                       <RankBadge rank={user.rank} />
                     </td>
                     <td className="px-4 py-3">
-                      <Link href={`/u/${user.username}`} className="flex items-center gap-3 hover:text-primary transition-colors">
+                      <Link
+                        href={`/u/${user.username}`}
+                        className="flex items-center gap-3 hover:text-primary transition-colors"
+                      >
                         {user.avatarUrl ? (
-                          <img src={user.avatarUrl} alt="" className="size-8 rounded-full object-cover" />
+                          <img
+                            src={user.avatarUrl}
+                            alt=""
+                            className="size-8 rounded-full object-cover"
+                          />
                         ) : (
                           <div className="size-8 rounded-full bg-gradient-to-br from-primary/30 to-secondary/30 grid place-items-center text-xs font-bold">
                             {user.username[0].toUpperCase()}
@@ -88,10 +105,16 @@ export default function LeaderboardClient() {
                       </Link>
                     </td>
                     <td className="px-4 py-3 text-right font-mono font-semibold">{user.elo}</td>
-                    <td className="px-4 py-3 text-right text-muted-foreground hidden sm:table-cell">{user.xp}</td>
-                    <td className="px-4 py-3 text-right text-muted-foreground hidden sm:table-cell">{user.matchesPlayed}</td>
+                    <td className="px-4 py-3 text-right text-muted-foreground hidden sm:table-cell">
+                      {user.xp}
+                    </td>
+                    <td className="px-4 py-3 text-right text-muted-foreground hidden sm:table-cell">
+                      {user.matchesPlayed}
+                    </td>
                     <td className="px-4 py-3 text-right">
-                      <span className={`text-xs font-semibold capitalize ${tierColor(user.rankTier)}`}>
+                      <span
+                        className={`text-xs font-semibold capitalize ${tierColor(user.rankTier)}`}
+                      >
                         {user.rankTier}
                       </span>
                     </td>
@@ -122,11 +145,17 @@ function RankBadge({ rank }: { rank: number }) {
 
 function tierColor(tier: string): string {
   switch (tier) {
-    case 'bronze': return 'text-amber-600'
-    case 'silver': return 'text-gray-300'
-    case 'gold': return 'text-yellow-400'
-    case 'platinum': return 'text-cyan-400'
-    case 'diamond': return 'text-violet-400'
-    default: return 'text-muted-foreground'
+    case 'bronze':
+      return 'text-amber-600'
+    case 'silver':
+      return 'text-gray-300'
+    case 'gold':
+      return 'text-yellow-400'
+    case 'platinum':
+      return 'text-cyan-400'
+    case 'diamond':
+      return 'text-violet-400'
+    default:
+      return 'text-muted-foreground'
   }
 }

@@ -7,11 +7,11 @@ services:
       POSTGRES_PASSWORD: codearena
       POSTGRES_DB: codearena
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U codearena"]
+      test: ['CMD-SHELL', 'pg_isready -U codearena']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -20,12 +20,12 @@ services:
     image: redis:7-alpine
     container_name: codearena-redis
     ports:
-      - "6379:6379"
+      - '6379:6379'
     volumes:
       - redis-data:/data
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ['redis-server', '--appendonly', 'yes']
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -36,7 +36,7 @@ services:
     container_name: codearena-piston
     privileged: true
     ports:
-      - "2000:2000"
+      - '2000:2000'
     restart: unless-stopped
     tmpfs:
       - /piston/jobs:exec,size=256M

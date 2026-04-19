@@ -24,11 +24,11 @@ model User {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  matchPlayers    MatchPlayer[]
-  submissions     Submission[]
-  attacks         WeaponEvent[]  @relation("attacker")
-  targeted        WeaponEvent[]  @relation("target")
-  sentRequests    Friendship[]   @relation("requester")
+  matchPlayers     MatchPlayer[]
+  submissions      Submission[]
+  attacks          WeaponEvent[] @relation("attacker")
+  targeted         WeaponEvent[] @relation("target")
+  sentRequests     Friendship[]  @relation("requester")
   receivedRequests Friendship[]  @relation("addressee")
 
   @@unique([provider, providerId])
