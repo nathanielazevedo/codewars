@@ -12,6 +12,7 @@ export async function POST() {
     elo: session.user.elo,
     avatarUrl: session.user.image ?? null,
     joinedAt: Date.now(),
+    isAdmin: session.user.isAdmin,
   })
   return NextResponse.json(status)
 }

@@ -13,7 +13,9 @@ export async function POST(_req: Request, { params }: { params: { code: string }
   }
   try {
     const code = params.code.toUpperCase()
-    const room = await startRoom(code, session.user.id)
+    const room = await startRoom(code, session.user.id, {
+      bypassMinPlayers: session.user.isAdmin,
+    })
 
     const problem = await getProblem(DEFAULT_PROBLEM_SLUG)
     if (!problem) {

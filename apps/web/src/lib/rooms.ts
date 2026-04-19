@@ -97,12 +97,16 @@ export async function leaveRoom(code: string, userId: string): Promise<void> {
   await writeRoom(room)
 }
 
-export async function startRoom(code: string, hostId: string): Promise<Room> {
+export async function startRoom(
+  code: string,
+  hostId: string,
+  opts: { bypassMinPlayers?: boolean } = {},
+): Promise<Room> {
   const room = await readRoom(code)
   if (!room) throw new Error('ROOM_NOT_FOUND')
   if (room.hostId !== hostId) throw new Error('NOT_HOST')
   if (room.status !== 'waiting') throw new Error('ALREADY_STARTED')
-  if (room.players.length < 2) throw new Error('NOT_ENOUGH_PLAYERS')
+  if (!opts.bypassMinPlayers && room.players.length < 2) throw new Error('NOT_ENOUGH_PLAYERS')
 
   room.status = 'active'
   await writeRoom(room)

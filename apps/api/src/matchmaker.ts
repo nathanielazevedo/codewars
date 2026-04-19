@@ -106,9 +106,24 @@ async function createPublicMatch(players: MatchPlayer[]): Promise<Match | null> 
   return match
 }
 
+async function queueHasAdmin(): Promise<boolean> {
+  const all = await redis.hvals(PLAYERS_KEY)
+  return all.some((row) => {
+    try {
+      return (JSON.parse(row) as MatchPlayer).isAdmin === true
+    } catch {
+      return false
+    }
+  })
+}
+
 async function tick(): Promise<void> {
   const count = await redis.zcard(MEMBERS_KEY)
-  if (count < QUICKMATCH.MIN_PLAYERS) return
+  if (count < 1) return
+
+  const hasAdmin = await queueHasAdmin()
+  const effectiveMin = hasAdmin ? 1 : QUICKMATCH.MIN_PLAYERS
+  if (count < effectiveMin) return
 
   const endsRaw = await redis.get(COUNTDOWN_KEY)
   const now = Date.now()
@@ -123,7 +138,7 @@ async function tick(): Promise<void> {
 
   try {
     const players = await popPlayers(QUICKMATCH.MAX_PLAYERS)
-    if (players.length < QUICKMATCH.MIN_PLAYERS) {
+    if (players.length < effectiveMin) {
       // Return the lonely player(s) to the queue if we somehow didn't clear enough
       for (const p of players) {
         await redis.zadd(MEMBERS_KEY, p.joinedAt, p.userId)

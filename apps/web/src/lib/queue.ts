@@ -30,9 +30,10 @@ export async function joinQuickmatch(
   }
 
   const count = await redis.zcard(MEMBERS_KEY)
+  const effectiveMin = player.isAdmin ? 1 : QUICKMATCH.MIN_PLAYERS
 
-  // Start countdown when we reach MIN_PLAYERS and no countdown is running
-  if (count >= QUICKMATCH.MIN_PLAYERS && count < QUICKMATCH.MAX_PLAYERS) {
+  // Start countdown when we have enough players and none is running
+  if (count >= effectiveMin && count < QUICKMATCH.MAX_PLAYERS) {
     const existingEnds = await redis.get(COUNTDOWN_KEY)
     if (!existingEnds) {
       const ends = Date.now() + QUICKMATCH.COUNTDOWN_MS

@@ -40,6 +40,7 @@ export interface QueuedPlayer {
   elo: number
   avatarUrl: string | null
   joinedAt: number
+  isAdmin?: boolean
 }
 
 export interface QueueStatus {
