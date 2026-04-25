@@ -21,6 +21,8 @@ model User {
   xp          Int      @default(0)
   rankTier    String   @default("bronze") @map("rank_tier") @db.VarChar(16)
   isAdmin     Boolean  @default(false) @map("is_admin")
+  isBot       Boolean  @default(false) @map("is_bot")
+  botPersona  String?  @map("bot_persona") @db.VarChar(16)
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -59,9 +61,11 @@ model Problem {
   difficulty    String   @db.VarChar(8)
   tags          String[] @default([])
   starterCode   Json     @default("{}") @map("starter_code")
+  solutions     Json     @default("{}")
   testCases     Json     @map("test_cases")
-  timeLimitMs   Int      @default(2000) @map("time_limit_ms")
-  memoryLimitMb Int      @default(256) @map("memory_limit_mb")
+  timeLimitMs      Int @default(2000) @map("time_limit_ms")
+  memoryLimitMb    Int @default(256) @map("memory_limit_mb")
+  matchDurationSec Int @default(600) @map("match_duration_sec")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
 

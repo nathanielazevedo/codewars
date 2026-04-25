@@ -1,5 +1,5 @@
 import { auth } from '@/auth'
-import { getMatch, readMatch, writeMatch, publishEvent, recordSolve } from '@/lib/matches'
+import { getMatch, readMatch, writeMatch, publishEvent, recordProgress } from '@/lib/matches'
 import { getProblem, type Language } from '@/lib/problems'
 import { runTestCase, type TestResult, type ExecutionStatus } from '@/lib/piston'
 import { NextResponse } from 'next/server'
@@ -30,12 +30,10 @@ export async function POST(req: Request) {
 
   const playerState = match.playerStates[session.user.id]
 
-  // Frozen players cannot submit
   if (playerState && playerState.frozenUntil > Date.now()) {
     return NextResponse.json({ error: 'YOU_ARE_FROZEN' }, { status: 422 })
   }
 
-  // Mirage: return fake wrong answer without running code, then clear
   if (playerState?.mirage) {
     playerState.mirage = false
     await writeMatch(match)
@@ -44,8 +42,9 @@ export async function POST(req: Request) {
       testResults: [
         { passed: false, status: 'wrong_answer' as ExecutionStatus, stdout: null, stderr: null, timeSec: null, memoryKb: null },
       ],
-      isFirstSolve: false,
-      isWinner: false,
+      testsPassed: playerState.testsPassed,
+      totalTests: playerState.totalTests,
+      finished: playerState.finishedAt !== null,
       mirage: true,
     })
   }
@@ -55,6 +54,7 @@ export async function POST(req: Request) {
 
   const results: TestResult[] = []
   let overallStatus: ExecutionStatus = 'accepted'
+  let passedCount = 0
 
   for (const tc of problem.testCases) {
     const r = await runTestCase({
@@ -66,24 +66,24 @@ export async function POST(req: Request) {
       memoryLimitMb: problem.memoryLimitMb,
     })
     results.push(r)
-    if (!r.passed) {
-      overallStatus = r.status
-      break
-    }
+    if (r.passed) passedCount++
+    else if (overallStatus === 'accepted') overallStatus = r.status
   }
 
-  let isFirstSolve = false
-  let isWinner = false
-  if (overallStatus === 'accepted') {
-    const res = await recordSolve(match.id, session.user.id, session.user.username)
-    isFirstSolve = res.isFirstSolve
-    isWinner = res.isWinner
-  }
+  const { match: updated, finished } = await recordProgress(
+    body.matchId,
+    session.user.id,
+    session.user.username,
+    passedCount,
+    problem.testCases.length,
+  )
 
   return NextResponse.json({
     status: overallStatus,
     testResults: results,
-    isFirstSolve,
-    isWinner,
+    testsPassed: passedCount,
+    totalTests: problem.testCases.length,
+    finished,
+    matchStatus: updated?.status ?? match.status,
   })
 }

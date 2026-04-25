@@ -6,6 +6,8 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const genCode = customAlphabet(CODE_ALPHABET, 6)
 
 const ROOM_TTL_SEC = 60 * 60
+const CHAT_HISTORY_LIMIT = 50
+export const CHAT_MESSAGE_MAX_LENGTH = 280
 
 export type RoomPlayer = {
   userId: string
@@ -24,13 +26,24 @@ export type Room = {
   players: RoomPlayer[]
 }
 
+export type ChatMessage = {
+  id: string
+  userId: string
+  username: string
+  avatarUrl: string | null
+  text: string
+  sentAt: number
+}
+
 export type RoomEvent =
   | { type: 'player_joined'; player: RoomPlayer }
   | { type: 'player_left'; userId: string }
   | { type: 'game_start'; matchId: string }
+  | { type: 'chat_message'; message: ChatMessage }
 
 const roomKey = (code: string) => `room:${code}`
 const roomChannel = (code: string) => `room:${code}:events`
+const roomChatKey = (code: string) => `room:${code}:chat`
 
 async function readRoom(code: string): Promise<Room | null> {
   const json = await redis.get(roomKey(code))
@@ -95,6 +108,50 @@ export async function leaveRoom(code: string, userId: string): Promise<void> {
     return
   }
   await writeRoom(room)
+}
+
+export async function postChatMessage(
+  code: string,
+  sender: Pick<RoomPlayer, 'userId' | 'username' | 'avatarUrl'>,
+  text: string,
+): Promise<ChatMessage> {
+  const room = await readRoom(code)
+  if (!room) throw new Error('ROOM_NOT_FOUND')
+  if (!room.players.some((p) => p.userId === sender.userId)) {
+    throw new Error('NOT_IN_ROOM')
+  }
+
+  const trimmed = text.replace(/\s+$/g, '').slice(0, CHAT_MESSAGE_MAX_LENGTH)
+  if (!trimmed) throw new Error('EMPTY_MESSAGE')
+
+  const message: ChatMessage = {
+    id: randomUUID(),
+    userId: sender.userId,
+    username: sender.username,
+    avatarUrl: sender.avatarUrl ?? null,
+    text: trimmed,
+    sentAt: Date.now(),
+  }
+
+  await redis.rpush(roomChatKey(code), JSON.stringify(message))
+  await redis.ltrim(roomChatKey(code), -CHAT_HISTORY_LIMIT, -1)
+  await redis.expire(roomChatKey(code), ROOM_TTL_SEC)
+
+  await publishEvent(code, { type: 'chat_message', message })
+  return message
+}
+
+export async function getChatHistory(code: string): Promise<ChatMessage[]> {
+  const raw = await redis.lrange(roomChatKey(code), -CHAT_HISTORY_LIMIT, -1)
+  return raw
+    .map((j) => {
+      try {
+        return JSON.parse(j) as ChatMessage
+      } catch {
+        return null
+      }
+    })
+    .filter((m): m is ChatMessage => !!m)
 }
 
 export async function startRoom(

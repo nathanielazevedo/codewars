@@ -1,5 +1,6 @@
 import { auth } from '@/auth'
 import { db } from '@code-arena/db'
+import { getPresence } from '@/lib/presence'
 import { NextResponse } from 'next/server'
 
 // GET /api/friends — list friends + pending requests
@@ -32,7 +33,7 @@ export async function GET() {
     }),
   ])
 
-  const friends = [
+  const friendsBase = [
     ...sent.filter((f) => f.status === 'accepted').map((f) => ({ ...f.addressee, friendshipId: f.id })),
     ...received.filter((f) => f.status === 'accepted').map((f) => ({ ...f.requester, friendshipId: f.id })),
   ]
@@ -44,6 +45,13 @@ export async function GET() {
   const outgoing = sent
     .filter((f) => f.status === 'pending')
     .map((f) => ({ ...f.addressee, friendshipId: f.id }))
+
+  const presence = await getPresence(friendsBase.map((f) => f.id))
+  const friends = friendsBase.map((f) => ({
+    ...f,
+    online: presence[f.id]?.online ?? false,
+    matchId: presence[f.id]?.matchId ?? null,
+  }))
 
   return NextResponse.json({ friends, incoming, outgoing })
 }

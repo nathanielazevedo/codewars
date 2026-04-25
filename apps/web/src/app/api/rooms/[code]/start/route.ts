@@ -27,6 +27,8 @@ export async function POST(_req: Request, { params }: { params: { code: string }
       roomCode: room.code,
       problemId: problem.id,
       players: room.players,
+      totalTests: problem.testCases.length,
+      durationSec: problem.matchDurationSec,
     })
 
     return NextResponse.json({ room })

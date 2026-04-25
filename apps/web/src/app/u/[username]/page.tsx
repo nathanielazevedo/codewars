@@ -1,8 +1,10 @@
 import { db } from '@code-arena/db'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { Swords, Trophy, Calendar } from 'lucide-react'
+import { Swords, Trophy, Calendar, Flame } from 'lucide-react'
 import { auth } from '@/auth'
+import { AddFriendButton, type Relationship } from '@/components/add-friend-button'
+import { getTopRivals, type Rival } from '@/lib/rivalries'
 
 function GithubIcon({ className }: { className?: string }) {
   return (
@@ -53,6 +55,27 @@ export default async function PublicProfilePage({
   if (!user) notFound()
 
   const isOwn = session?.user?.id === user.id
+  const rivals = await getTopRivals(user.id, 5)
+
+  let relationship: Relationship = 'none'
+  let friendshipId: string | null = null
+  if (session?.user && !isOwn) {
+    const f = await db.friendship.findFirst({
+      where: {
+        OR: [
+          { requesterId: session.user.id, addresseeId: user.id },
+          { requesterId: user.id, addresseeId: session.user.id },
+        ],
+      },
+    })
+    if (f) {
+      friendshipId = f.id
+      if (f.status === 'accepted') relationship = 'friends'
+      else if (f.status === 'pending') {
+        relationship = f.requesterId === session.user.id ? 'outgoing' : 'incoming'
+      }
+    }
+  }
 
   return (
     <div className="min-h-screen arena-bg">
@@ -103,7 +126,16 @@ export default async function PublicProfilePage({
             </div>
           )}
           <div className="flex-1">
-            <h1 className="font-display font-bold text-2xl">{user.username}</h1>
+            <div className="flex items-start justify-between gap-4">
+              <h1 className="font-display font-bold text-2xl">{user.username}</h1>
+              {session?.user && !isOwn && (
+                <AddFriendButton
+                  targetUsername={user.username}
+                  initialRelationship={relationship}
+                  initialFriendshipId={friendshipId}
+                />
+              )}
+            </div>
             <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
               <span className="capitalize font-medium text-foreground">{user.rankTier}</span>
               <span>·</span>
@@ -159,8 +191,80 @@ export default async function PublicProfilePage({
             })}
           />
         </div>
+
+        {rivals.length > 0 && (
+          <section className="mt-10">
+            <div className="flex items-center gap-2 mb-3">
+              <Flame className="size-4 text-arena-amber" />
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                {isOwn ? 'Your Rivals' : 'Top Rivals'}
+              </h2>
+            </div>
+            <ul className="space-y-2">
+              {rivals.map((r) => (
+                <RivalRow key={r.userId} rival={r} ownerIsSubject={true} />
+              ))}
+            </ul>
+          </section>
+        )}
       </main>
     </div>
+  )
+}
+
+function RivalRow({
+  rival,
+  ownerIsSubject: _ownerIsSubject,
+}: {
+  rival: Rival
+  ownerIsSubject: boolean
+}) {
+  const dominant = rival.wins > rival.losses
+  const even = rival.wins === rival.losses
+  return (
+    <li className="flex items-center justify-between gap-3 rounded-lg border border-border/80 bg-card/40 px-4 py-3">
+      <Link
+        href={`/u/${rival.username}`}
+        className="flex items-center gap-3 min-w-0 hover:text-primary transition-colors"
+      >
+        {rival.avatarUrl ? (
+          <img
+            src={rival.avatarUrl}
+            alt=""
+            className="size-9 rounded-full object-cover"
+          />
+        ) : (
+          <div className="size-9 rounded-full bg-gradient-to-br from-primary/30 to-secondary/30 grid place-items-center text-xs font-bold">
+            {rival.username[0].toUpperCase()}
+          </div>
+        )}
+        <div className="min-w-0">
+          <div className="font-medium text-sm truncate">{rival.username}</div>
+          <div className="text-xs text-muted-foreground">
+            {rival.elo} Elo · <span className="capitalize">{rival.rankTier}</span>
+          </div>
+        </div>
+      </Link>
+      <div className="flex items-center gap-3 shrink-0">
+        <div className="text-right">
+          <div className="text-xs text-muted-foreground">Record</div>
+          <div
+            className={`font-mono text-sm font-semibold ${
+              even
+                ? 'text-muted-foreground'
+                : dominant
+                  ? 'text-arena-emerald'
+                  : 'text-destructive'
+            }`}
+          >
+            {rival.wins}-{rival.losses}
+          </div>
+        </div>
+        <div className="text-right text-xs text-muted-foreground tabular-nums w-16">
+          {rival.matches} {rival.matches === 1 ? 'match' : 'matches'}
+        </div>
+      </div>
+    </li>
   )
 }
 

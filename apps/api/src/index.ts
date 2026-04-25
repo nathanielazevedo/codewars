@@ -4,6 +4,8 @@ import { createServer } from 'node:http'
 import { Server } from 'socket.io'
 import { setupSocket } from './socket.js'
 import { startMatchmaker } from './matchmaker.js'
+import { startBotRunner } from './bot-runner.js'
+import { startMatchTicker } from './match-ticker.js'
 
 const PORT = Number(process.env.PORT) || Number(process.env.API_PORT) || 3001
 const WEB_ORIGIN = process.env.NEXTAUTH_URL ?? 'http://localhost:3000'
@@ -24,6 +26,8 @@ const io = new Server(httpServer, {
 
 setupSocket(io)
 startMatchmaker()
+startBotRunner()
+startMatchTicker()
 
 httpServer.listen(PORT, () => {
   console.log(`[api] listening on http://localhost:${PORT}`)

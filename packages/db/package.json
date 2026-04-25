@@ -12,6 +12,7 @@
     "migrate:deploy": "prisma migrate deploy",
     "studio": "dotenv -e ../../.env -- prisma studio",
     "seed": "dotenv -e ../../.env -- npx tsx prisma/seed.ts",
+    "seed:bots": "dotenv -e ../../.env -- npx tsx prisma/seed-bots.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

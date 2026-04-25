@@ -32,7 +32,46 @@ export const QUICKMATCH = {
   MIN_PLAYERS: 2,
   MAX_PLAYERS: 10,
   COUNTDOWN_MS: 30000,
+  BOT_FILL_DELAY_MS: 12000,
 } as const
+
+export type BotPersona = 'rookie' | 'contender' | 'ace'
+
+export interface BotProfile {
+  persona: BotPersona
+  solveDelayRange: [number, number]
+  accuracy: number
+  typingJitterMs: [number, number]
+  weaponStrategy: 'none' | 'reactive' | 'aggressive'
+  weaponUseRangeMs: [number, number]
+}
+
+export const BOT_PROFILES: Record<BotPersona, BotProfile> = {
+  rookie: {
+    persona: 'rookie',
+    solveDelayRange: [75_000, 130_000],
+    accuracy: 0.55,
+    typingJitterMs: [400, 1200],
+    weaponStrategy: 'none',
+    weaponUseRangeMs: [0, 0],
+  },
+  contender: {
+    persona: 'contender',
+    solveDelayRange: [40_000, 75_000],
+    accuracy: 0.8,
+    typingJitterMs: [300, 900],
+    weaponStrategy: 'reactive',
+    weaponUseRangeMs: [25_000, 70_000],
+  },
+  ace: {
+    persona: 'ace',
+    solveDelayRange: [18_000, 40_000],
+    accuracy: 0.95,
+    typingJitterMs: [150, 500],
+    weaponStrategy: 'aggressive',
+    weaponUseRangeMs: [12_000, 45_000],
+  },
+}
 
 export interface QueuedPlayer {
   userId: string
@@ -71,6 +110,11 @@ export interface PlayerGameState {
   mirage: boolean
   cooldowns: Record<string, number>
   nukeUsed: boolean
+  testsPassed: number
+  totalTests: number
+  lastSubmitAt: number
+  finishedAt: number | null
+  placement: number | null
 }
 
 export interface PlayerState {

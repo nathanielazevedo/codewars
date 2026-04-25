@@ -71,8 +71,75 @@ print(json.dumps(two_sum(nums, target)))
     { input: '[3,3]\n6', expectedOutput: '[0,1]' },
     { input: '[-1,-2,-3,-4,-5]\n-8', expectedOutput: '[2,4]' },
   ],
+  solutions: {
+    javascript: {
+      correct: `function twoSum(nums, target) {
+  const seen = new Map()
+  for (let i = 0; i < nums.length; i++) {
+    const need = target - nums[i]
+    if (seen.has(need)) return [seen.get(need), i]
+    seen.set(nums[i], i)
+  }
+  return []
+}
+
+const lines = require('fs').readFileSync(0, 'utf8').trim().split('\\n')
+const nums = JSON.parse(lines[0])
+const target = parseInt(lines[1], 10)
+console.log(JSON.stringify(twoSum(nums, target)))
+`,
+      wrong: `function twoSum(nums, target) {
+  // naive off-by-one: returns wrong pair on some inputs
+  for (let i = 0; i < nums.length; i++) {
+    for (let j = 0; j < nums.length; j++) {
+      if (nums[i] + nums[j] === target) return [i, j]
+    }
+  }
+  return []
+}
+
+const lines = require('fs').readFileSync(0, 'utf8').trim().split('\\n')
+const nums = JSON.parse(lines[0])
+const target = parseInt(lines[1], 10)
+console.log(JSON.stringify(twoSum(nums, target)))
+`,
+    },
+    python: {
+      correct: `import sys, json
+
+def two_sum(nums, target):
+    seen = {}
+    for i, n in enumerate(nums):
+        need = target - n
+        if need in seen:
+            return [seen[need], i]
+        seen[n] = i
+    return []
+
+lines = sys.stdin.read().strip().split('\\n')
+nums = json.loads(lines[0])
+target = int(lines[1])
+print(json.dumps(two_sum(nums, target)))
+`,
+      wrong: `import sys, json
+
+def two_sum(nums, target):
+    for i in range(len(nums)):
+        for j in range(len(nums)):
+            if nums[i] + nums[j] == target:
+                return [i, j]
+    return []
+
+lines = sys.stdin.read().strip().split('\\n')
+nums = json.loads(lines[0])
+target = int(lines[1])
+print(json.dumps(two_sum(nums, target)))
+`,
+    },
+  },
   timeLimitMs: 2000,
   memoryLimitMb: 128,
+  matchDurationSec: 600,
 }
 
 async function main() {

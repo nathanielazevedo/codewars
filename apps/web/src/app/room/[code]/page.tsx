@@ -11,5 +11,11 @@ export default async function RoomPage({ params }: { params: { code: string } })
   const room = await getRoom(code)
   if (!room) notFound()
 
-  return <LobbyClient initialRoom={room} currentUserId={session.user.id} />
+  return (
+    <LobbyClient
+      initialRoom={room}
+      currentUserId={session.user.id}
+      isAdmin={Boolean(session.user.isAdmin)}
+    />
+  )
 }

@@ -17,6 +17,7 @@ export type Problem = {
   testCases: TestCase[]
   timeLimitMs: number
   memoryLimitMb: number
+  matchDurationSec: number
 }
 
 function toProblem(row: {
@@ -29,6 +30,7 @@ function toProblem(row: {
   testCases: unknown
   timeLimitMs: number
   memoryLimitMb: number
+  matchDurationSec: number
 }): Problem {
   return {
     id: row.id,
@@ -40,6 +42,7 @@ function toProblem(row: {
     testCases: (row.testCases ?? []) as TestCase[],
     timeLimitMs: row.timeLimitMs,
     memoryLimitMb: row.memoryLimitMb,
+    matchDurationSec: row.matchDurationSec,
   }
 }
 

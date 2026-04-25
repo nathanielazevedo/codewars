@@ -2,6 +2,8 @@ import './globals.css'
 import type { Metadata } from 'next'
 import { Inter, Space_Grotesk, JetBrains_Mono } from 'next/font/google'
 import { cn } from '@/lib/cn'
+import { auth } from '@/auth'
+import { PresenceProvider } from '@/components/presence-provider'
 
 const sans = Inter({ subsets: ['latin'], variable: '--font-sans', display: 'swap' })
 const display = Space_Grotesk({
@@ -22,11 +24,14 @@ export const metadata: Metadata = {
   description: 'Real-time multiplayer DSA battle',
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const session = await auth()
   return (
     <html lang="en" className={cn(sans.variable, display.variable, mono.variable)}>
       <body className="font-sans bg-background text-foreground antialiased min-h-screen">
-        {children}
+        <PresenceProvider currentUserId={session?.user?.id ?? null}>
+          {children}
+        </PresenceProvider>
       </body>
     </html>
   )

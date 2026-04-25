@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback, useTransition } from 'react'
+import { useEffect, useMemo, useState, useRef, useCallback, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { io, type Socket } from 'socket.io-client'
 import {
@@ -9,15 +9,19 @@ import {
   Clock,
   Crown,
   Eye,
+  Flame,
   Home,
   Loader2,
   Lock,
   Play,
   Radiation,
+  RotateCcw,
   Shield,
   Shuffle,
   Snowflake,
   Swords,
+  Trophy,
+  UserPlus,
   X,
   Zap,
 } from 'lucide-react'
@@ -35,8 +39,10 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 type SubmitResponse = {
   status: ExecutionStatus
   testResults: TestResult[]
-  isFirstSolve: boolean
-  isWinner: boolean
+  testsPassed: number
+  totalTests: number
+  finished: boolean
+  matchStatus?: 'active' | 'finished'
   mirage?: boolean
 }
 
@@ -52,6 +58,8 @@ type WeaponNotification = {
   type: 'incoming' | 'blocked' | 'info'
   expiresAt: number
 }
+
+type Placement = Match['placements'][number]
 
 const WEAPON_ICON: Record<WeaponType, React.ComponentType<{ className?: string }>> = {
   freeze: Snowflake,
@@ -81,6 +89,13 @@ const DIFF_VARIANT: Record<string, 'emerald' | 'amber' | 'rose' | 'default'> = {
   hard: 'rose',
 }
 
+function formatMs(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000))
+  const m = Math.floor(totalSec / 60)
+  const s = totalSec % 60
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
 export function MatchClient({
   initialMatch,
   problem,
@@ -100,6 +115,11 @@ export function MatchClient({
   const [activeEffects, setActiveEffects] = useState<ActiveEffect[]>([])
   const [notifications, setNotifications] = useState<WeaponNotification[]>([])
   const [firingWeapon, setFiringWeapon] = useState(false)
+  const [timeRemainingMs, setTimeRemainingMs] = useState<number>(
+    Math.max(0, initialMatch.endsAt - Date.now()),
+  )
+  const [endPlacements, setEndPlacements] = useState<Placement[] | null>(null)
+  const [endEloDeltas, setEndEloDeltas] = useState<Record<string, number>>({})
   const notifIdRef = useRef(0)
   const codeRef = useRef(code)
   codeRef.current = code
@@ -107,9 +127,9 @@ export function MatchClient({
   const myState: PlayerGameState | undefined = match.playerStates?.[currentUserId]
   const ap = myState?.ap ?? 0
   const isOver = match.status === 'finished'
-  const didWin = match.winnerId === currentUserId
-  const winnerName = match.players.find((p) => p.userId === match.winnerId)?.username ?? null
+  const myPlacement = endPlacements?.find((p) => p.userId === currentUserId)?.placement ?? null
   const isFrozen = (myState?.frozenUntil ?? 0) > Date.now()
+  const myFinished = (myState?.finishedAt ?? null) !== null
 
   const addNotification = useCallback((message: string, type: WeaponNotification['type']) => {
     const id = ++notifIdRef.current
@@ -146,26 +166,66 @@ export function MatchClient({
       socket = io(API_URL, { auth: { token } })
       socket.on('connect', () => socket!.emit('match:join', { matchId: match.id }))
 
-      socket.on('player:solved', ({ userId }: { userId: string }) => {
-        setMatch((m) =>
-          m.solvers.includes(userId) ? m : { ...m, solvers: [...m.solvers, userId] },
-        )
+      socket.on(
+        'player:progress',
+        ({
+          userId,
+          testsPassed,
+          totalTests,
+          finishedAt,
+        }: {
+          userId: string
+          testsPassed: number
+          totalTests: number
+          finishedAt: number | null
+        }) => {
+          setMatch((m) => ({
+            ...m,
+            playerStates: {
+              ...m.playerStates,
+              [userId]: {
+                ...m.playerStates[userId],
+                testsPassed,
+                totalTests,
+                finishedAt,
+              },
+            },
+          }))
+        },
+      )
+
+      socket.on(
+        'player:finished',
+        ({ userId, username }: { userId: string; username: string }) => {
+          if (userId !== currentUserId) {
+            addNotification(`${username} finished all tests`, 'info')
+          }
+        },
+      )
+
+      socket.on('game:tick', ({ timeRemainingMs: t }: { timeRemainingMs: number }) => {
+        setTimeRemainingMs(t)
       })
 
-      socket.on('game:end', ({ winnerId }: { winnerId: string }) => {
-        setMatch((m) => ({
-          ...m,
-          status: 'finished',
-          winnerId,
-          endedAt: Date.now(),
-        }))
-      })
+      socket.on(
+        'game:end',
+        ({
+          placements,
+          eloDeltas,
+        }: {
+          placements: Placement[]
+          eloDeltas: Record<string, number>
+        }) => {
+          setEndPlacements(placements)
+          setEndEloDeltas(eloDeltas ?? {})
+          setMatch((m) => ({ ...m, status: 'finished', placements, endedAt: Date.now() }))
+        },
+      )
 
       socket.on(
         'weapon:incoming',
         ({
           weaponType,
-          attackerId,
           attackerUsername,
           targetId,
           duration,
@@ -195,15 +255,7 @@ export function MatchClient({
 
       socket.on(
         'weapon:blocked',
-        ({
-          weaponType,
-          attackerId,
-          targetId,
-        }: {
-          weaponType: WeaponType
-          attackerId: string
-          targetId: string
-        }) => {
+        ({ weaponType, targetId }: { weaponType: WeaponType; attackerId: string; targetId: string }) => {
           if (targetId === currentUserId) {
             addNotification(`Your shield blocked a ${WEAPON_LABEL[weaponType]}!`, 'blocked')
             setMatch((m) => ({
@@ -358,10 +410,11 @@ export function MatchClient({
         }
       } catch {
         setResult({
-          status: 'internal_error',
+          status: 'internal_error' as ExecutionStatus,
           testResults: [],
-          isFirstSolve: false,
-          isWinner: false,
+          testsPassed: 0,
+          totalTests: 0,
+          finished: false,
         })
       }
     })
@@ -373,11 +426,12 @@ export function MatchClient({
   const hasFreezeEffect = activeEffects.some(
     (e) => e.weaponType === 'freeze' && e.expiresAt > Date.now(),
   )
-  const editorDisabled = isOver || isFrozen || hasFreezeEffect
+  const editorDisabled = isOver || isFrozen || hasFreezeEffect || myFinished
+
+  const scoreboard = useMemo(() => buildScoreboard(match), [match])
 
   return (
     <main className="relative h-screen flex flex-col bg-background overflow-hidden">
-      {/* Top HUD */}
       <header className="relative z-20 flex items-center justify-between gap-4 px-5 py-3 border-b border-border/80 bg-card/60 backdrop-blur-sm">
         <div className="flex items-center gap-4 min-w-0">
           <div className="flex items-center gap-2">
@@ -391,7 +445,6 @@ export function MatchClient({
 
           <div className="h-6 w-px bg-border" />
 
-          {/* AP counter */}
           <div
             className={cn(
               'flex items-center gap-2 px-3 py-1.5 rounded-md border font-mono text-sm transition-all',
@@ -404,6 +457,8 @@ export function MatchClient({
             <span className="font-semibold tabular-nums">{ap}</span>
             <span className="text-xs opacity-60">AP</span>
           </div>
+
+          <TimerPill ms={timeRemainingMs} />
 
           {myState?.shield && (
             <Badge variant="primary" className="gap-1 animate-pulse-glow">
@@ -418,16 +473,9 @@ export function MatchClient({
             <span className="text-muted-foreground text-[10px]">ROOM</span>
             <span className="font-semibold tracking-widest">{match.roomCode}</span>
           </Badge>
-          <PlayerPills
-            match={match}
-            currentUserId={currentUserId}
-            selectedTarget={selectedTarget}
-            onSelectTarget={(id) => setSelectedTarget((prev) => (prev === id ? null : id))}
-          />
         </div>
       </header>
 
-      {/* Weapon bar */}
       <WeaponBar
         ap={ap}
         myState={myState}
@@ -438,10 +486,15 @@ export function MatchClient({
         onFire={fireWeapon}
       />
 
-      {/* Main split */}
       <div className="flex-1 flex min-h-0">
-        {/* Problem panel */}
-        <section className="w-1/2 border-r border-border/80 overflow-hidden flex flex-col">
+        <Sidebar
+          scoreboard={scoreboard}
+          currentUserId={currentUserId}
+          selectedTarget={selectedTarget}
+          onSelectTarget={(id) => setSelectedTarget((prev) => (prev === id ? null : id))}
+        />
+
+        <section className="flex-1 border-r border-border/80 overflow-hidden flex flex-col min-w-0">
           <div className="px-8 pt-7 pb-4">
             <div className="flex items-center gap-2 mb-3">
               <Badge
@@ -460,8 +513,7 @@ export function MatchClient({
           </div>
         </section>
 
-        {/* Editor panel */}
-        <section className="w-1/2 flex flex-col min-h-0 relative bg-card/20">
+        <section className="w-[46%] flex flex-col min-h-0 relative bg-card/20">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/80 bg-card/40 backdrop-blur-sm">
             <div className="flex items-center gap-2">
               <select
@@ -497,6 +549,11 @@ export function MatchClient({
                   <Snowflake />
                   Frozen
                 </>
+              ) : myFinished ? (
+                <>
+                  <Check />
+                  Done
+                </>
               ) : (
                 <>
                   <Play />
@@ -514,7 +571,6 @@ export function MatchClient({
                 disabled={editorDisabled}
               />
             </div>
-            {/* Screen Lock overlay */}
             {hasScreenLock && (
               <div className="absolute inset-0 bg-background/95 backdrop-blur-md z-10 flex items-center justify-center animate-fade-in">
                 <div className="text-center">
@@ -526,7 +582,6 @@ export function MatchClient({
                 </div>
               </div>
             )}
-            {/* Freeze overlay */}
             {hasFreezeEffect && (
               <div className="absolute inset-0 bg-gradient-to-br from-primary/20 via-primary/10 to-transparent z-10 flex items-center justify-center pointer-events-none animate-fade-in">
                 <div className="text-center">
@@ -540,12 +595,16 @@ export function MatchClient({
                 </div>
               </div>
             )}
+            {myFinished && !isOver && !hasFreezeEffect && !hasScreenLock && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5 bg-arena-emerald/20 border border-arena-emerald/50 text-arena-emerald text-xs font-semibold backdrop-blur-md z-10">
+                All tests passed — waiting for match to end
+              </div>
+            )}
           </div>
           {result && <ResultPanel result={result} />}
         </section>
       </div>
 
-      {/* Notifications */}
       <div className="fixed top-4 right-4 z-50 space-y-2 pointer-events-none w-80 max-w-[calc(100vw-2rem)]">
         {notifications.map((n) => (
           <div
@@ -565,11 +624,185 @@ export function MatchClient({
         ))}
       </div>
 
-      {/* Match end overlay */}
       {isOver && (
-        <EndOverlay didWin={didWin} winnerName={winnerName} onHome={() => router.push('/')} />
+        <EndOverlay
+          match={match}
+          placements={endPlacements ?? match.placements}
+          eloDeltas={endEloDeltas}
+          myPlacement={myPlacement}
+          currentUserId={currentUserId}
+          onHome={() => router.push('/')}
+        />
       )}
     </main>
+  )
+}
+
+/* ─── Scoreboard helpers ─── */
+
+type Row = {
+  userId: string
+  username: string
+  avatarUrl: string | null
+  testsPassed: number
+  totalTests: number
+  finishedAt: number | null
+  ap: number
+  hasShield: boolean
+  frozen: boolean
+}
+
+function buildScoreboard(match: Match): Row[] {
+  const rows: Row[] = match.players.map((p) => {
+    const s = match.playerStates?.[p.userId]
+    return {
+      userId: p.userId,
+      username: p.username,
+      avatarUrl: p.avatarUrl ?? null,
+      testsPassed: s?.testsPassed ?? 0,
+      totalTests: s?.totalTests ?? 0,
+      finishedAt: s?.finishedAt ?? null,
+      ap: s?.ap ?? 0,
+      hasShield: Boolean(s?.shield),
+      frozen: (s?.frozenUntil ?? 0) > Date.now(),
+    }
+  })
+  rows.sort((a, b) => {
+    if (a.finishedAt !== null && b.finishedAt !== null) return a.finishedAt - b.finishedAt
+    if (a.finishedAt !== null) return -1
+    if (b.finishedAt !== null) return 1
+    return b.testsPassed - a.testsPassed
+  })
+  return rows
+}
+
+function Sidebar({
+  scoreboard,
+  currentUserId,
+  selectedTarget,
+  onSelectTarget,
+}: {
+  scoreboard: Row[]
+  currentUserId: string
+  selectedTarget: string | null
+  onSelectTarget: (id: string) => void
+}) {
+  return (
+    <aside className="w-60 shrink-0 border-r border-border/80 bg-card/20 backdrop-blur-sm flex flex-col">
+      <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2">
+        <Trophy className="size-3.5 text-arena-amber" />
+        <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-mono">
+          Live Rank
+        </span>
+      </div>
+      <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+        {scoreboard.map((row, idx) => {
+          const me = row.userId === currentUserId
+          const isTarget = row.userId === selectedTarget
+          const pct = row.totalTests ? (row.testsPassed / row.totalTests) * 100 : 0
+          const done = row.finishedAt !== null
+          return (
+            <button
+              key={row.userId}
+              onClick={() => !me && onSelectTarget(row.userId)}
+              disabled={me}
+              className={cn(
+                'w-full text-left rounded-lg border transition-all p-2.5',
+                isTarget
+                  ? 'bg-destructive/15 border-destructive/70 ring-glow-rose'
+                  : done
+                    ? 'bg-arena-emerald/10 border-arena-emerald/40'
+                    : me
+                      ? 'bg-primary/10 border-primary/40'
+                      : 'bg-card/40 border-border hover:border-destructive/50 hover:bg-destructive/5 cursor-pointer',
+              )}
+            >
+              <div className="flex items-center gap-2 mb-1.5">
+                <div
+                  className={cn(
+                    'size-5 rounded-full grid place-items-center text-[10px] font-bold font-display shrink-0',
+                    idx === 0
+                      ? 'bg-arena-amber text-background'
+                      : idx === 1
+                        ? 'bg-muted-foreground/80 text-background'
+                        : idx === 2
+                          ? 'bg-arena-amber/60 text-background'
+                          : 'bg-muted text-muted-foreground',
+                  )}
+                >
+                  {idx + 1}
+                </div>
+                {row.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={row.avatarUrl}
+                    alt=""
+                    className="size-6 rounded-full bg-muted/40 border border-border shrink-0"
+                  />
+                ) : (
+                  <div className="size-6 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 border border-border grid place-items-center shrink-0">
+                    <span className="text-[10px] font-bold font-display">
+                      {row.username.slice(0, 1).toUpperCase()}
+                    </span>
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-medium truncate flex items-center gap-1">
+                    {row.username}
+                    {me && <span className="text-muted-foreground">(you)</span>}
+                    {row.hasShield && <Shield className="size-2.5 text-primary" />}
+                    {row.frozen && <Snowflake className="size-2.5 text-primary animate-pulse" />}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground font-mono tabular-nums flex items-center gap-1.5">
+                    <Zap className="size-2.5 text-arena-amber/80" />
+                    {row.ap}
+                    {done && (
+                      <span className="text-arena-emerald ml-auto flex items-center gap-0.5">
+                        <Check className="size-2.5" />
+                        done
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-1.5 rounded-full bg-muted/40 overflow-hidden">
+                  <div
+                    className={cn(
+                      'h-full transition-all',
+                      done
+                        ? 'bg-gradient-to-r from-arena-emerald to-arena-emerald/70'
+                        : 'bg-gradient-to-r from-primary to-secondary',
+                    )}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <span className="text-[10px] font-mono tabular-nums text-muted-foreground shrink-0">
+                  {row.testsPassed}/{row.totalTests}
+                </span>
+              </div>
+            </button>
+          )
+        })}
+      </div>
+    </aside>
+  )
+}
+
+function TimerPill({ ms }: { ms: number }) {
+  const low = ms < 60_000
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-2 px-3 py-1.5 rounded-md border font-mono text-sm',
+        low
+          ? 'border-destructive/50 bg-destructive/10 text-destructive animate-pulse-glow'
+          : 'border-border bg-muted/30 text-foreground',
+      )}
+    >
+      <Clock className="size-3.5" />
+      <span className="font-semibold tabular-nums">{formatMs(ms)}</span>
+    </div>
   )
 }
 
@@ -650,65 +883,9 @@ function WeaponBar({
       )}
       {!isOver && (
         <div className="ml-auto text-[11px] text-muted-foreground font-mono whitespace-nowrap pl-4">
-          {selectedTarget ? '← pick a weapon' : '← click opponent to target'}
+          {selectedTarget ? '← pick a weapon' : '← click opponent in sidebar'}
         </div>
       )}
-    </div>
-  )
-}
-
-/* ─── Player Pills ─── */
-
-function PlayerPills({
-  match,
-  currentUserId,
-  selectedTarget,
-  onSelectTarget,
-}: {
-  match: Match
-  currentUserId: string
-  selectedTarget: string | null
-  onSelectTarget: (id: string) => void
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      {match.players.map((p) => {
-        const solved = match.solvers.includes(p.userId)
-        const me = p.userId === currentUserId
-        const isTarget = p.userId === selectedTarget
-        const playerAp = match.playerStates?.[p.userId]?.ap ?? 0
-        const hasShield = match.playerStates?.[p.userId]?.shield ?? false
-        return (
-          <button
-            key={p.userId}
-            onClick={() => !me && onSelectTarget(p.userId)}
-            disabled={me}
-            className={cn(
-              'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs border transition-all',
-              isTarget && 'bg-destructive/15 border-destructive/70 text-destructive ring-glow-rose',
-              !isTarget &&
-                solved &&
-                'bg-arena-emerald/10 border-arena-emerald/40 text-arena-emerald',
-              !isTarget && !solved && me && 'bg-primary/10 border-primary/40 text-primary',
-              !isTarget &&
-                !solved &&
-                !me &&
-                'bg-card/40 border-border text-foreground hover:border-destructive/50 hover:bg-destructive/5 hover:text-destructive cursor-pointer',
-            )}
-          >
-            {hasShield && <Shield className="size-3" />}
-            <span className="font-medium">{p.username}</span>
-            {me && <span className="opacity-60">(you)</span>}
-            {solved && <Check className="size-3" />}
-            {!me && (
-              <span className="flex items-center gap-0.5 text-arena-amber/80 font-mono tabular-nums">
-                <Zap className="size-2.5" />
-                {playerAp}
-              </span>
-            )}
-          </button>
-        )
-      })}
     </div>
   )
 }
@@ -716,12 +893,12 @@ function PlayerPills({
 /* ─── Result Panel ─── */
 
 function ResultPanel({ result }: { result: SubmitResponse }) {
-  const ok = result.status === 'accepted'
+  const allPassed = result.testsPassed === result.totalTests && result.totalTests > 0
   return (
     <div className="border-t border-border/80 bg-card/30 backdrop-blur-sm max-h-48 overflow-auto animate-fade-in-up">
       <div className="px-4 py-3 border-b border-border/60 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {ok ? (
+          {allPassed ? (
             <div className="size-6 rounded-full bg-arena-emerald/15 border border-arena-emerald/40 grid place-items-center">
               <Check className="size-3.5 text-arena-emerald" />
             </div>
@@ -733,15 +910,15 @@ function ResultPanel({ result }: { result: SubmitResponse }) {
           <span
             className={cn(
               'font-display font-semibold text-sm',
-              ok ? 'text-arena-emerald' : 'text-destructive',
+              allPassed ? 'text-arena-emerald' : 'text-destructive',
             )}
           >
-            {result.status.replace(/_/g, ' ').toUpperCase()}
+            {result.testsPassed}/{result.totalTests} tests passed
           </span>
-          {result.isWinner && (
-            <Badge variant="amber" className="ml-1">
-              <Crown className="size-3" />
-              You won
+          {result.finished && (
+            <Badge variant="emerald" className="ml-1">
+              <Check className="size-3" />
+              Finished
             </Badge>
           )}
           {result.mirage && (
@@ -777,65 +954,318 @@ function ResultPanel({ result }: { result: SubmitResponse }) {
 
 /* ─── End Overlay ─── */
 
+type H2HRecord = { wins: number; losses: number; matches: number }
+type FriendshipState = {
+  id: string
+  status: 'pending' | 'accepted' | 'rejected'
+  iRequested: boolean
+}
+
 function EndOverlay({
-  didWin,
-  winnerName,
+  match,
+  placements,
+  eloDeltas,
+  myPlacement,
+  currentUserId,
   onHome,
 }: {
-  didWin: boolean
-  winnerName: string | null
+  match: Match
+  placements: Placement[]
+  eloDeltas: Record<string, number>
+  myPlacement: number | null
+  currentUserId: string
   onHome: () => void
 }) {
+  const router = useRouter()
+  const nameById = new Map(match.players.map((p) => [p.userId, p.username]))
+  const avatarById = new Map(match.players.map((p) => [p.userId, p.avatarUrl ?? null]))
+  const didWin = myPlacement === 1
+
+  const [h2h, setH2H] = useState<Record<string, H2HRecord>>({})
+  const [friendships, setFriendships] = useState<Record<string, FriendshipState>>({})
+  const [rematching, setRematching] = useState(false)
+  const [rematchError, setRematchError] = useState<string | null>(null)
+
+  const opponentIds = useMemo(
+    () =>
+      placements
+        .map((p) => p.userId)
+        .filter((id) => id !== currentUserId),
+    [placements, currentUserId],
+  )
+
+  useEffect(() => {
+    if (!opponentIds.length) return
+    let cancelled = false
+    ;(async () => {
+      const res = await fetch(
+        `/api/rivalry?opponents=${opponentIds.join(',')}`,
+      )
+      if (!res.ok || cancelled) return
+      const data = await res.json()
+      setH2H(data.records ?? {})
+      setFriendships(data.friendships ?? {})
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [opponentIds])
+
+  async function addFriend(opponentId: string, username: string) {
+    const res = await fetch('/api/friends', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username }),
+    })
+    if (!res.ok) return
+    const data = await res.json()
+    setFriendships((prev) => ({
+      ...prev,
+      [opponentId]: {
+        id: data.id,
+        status: data.status ?? 'pending',
+        iRequested: true,
+      },
+    }))
+  }
+
+  async function rematch() {
+    setRematchError(null)
+    setRematching(true)
+    try {
+      const res = await fetch('/api/rematch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ opponentIds }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? 'Failed to create rematch')
+      }
+      const { room } = await res.json()
+      router.push(`/room/${room.code}`)
+    } catch (e) {
+      setRematchError((e as Error).message)
+      setRematching(false)
+    }
+  }
+
   return (
     <div className="fixed inset-0 bg-background/90 backdrop-blur-md flex items-center justify-center z-50 animate-fade-in p-6">
-      <div className="relative max-w-md w-full animate-fade-in-up">
-        {/* glow halo */}
+      <div className="relative max-w-lg w-full animate-fade-in-up">
         <div
           className={cn(
             'absolute -inset-8 blur-3xl opacity-60 rounded-full',
             didWin
               ? 'bg-gradient-to-r from-primary via-arena-amber to-secondary'
-              : 'bg-gradient-to-r from-destructive to-arena-violet',
+              : 'bg-gradient-to-r from-arena-violet to-secondary',
           )}
         />
-        <div className="relative rounded-2xl border border-border bg-card/90 backdrop-blur-xl p-10 text-center shadow-2xl">
-          <div className="flex justify-center mb-5">
+        <div className="relative rounded-2xl border border-border bg-card/90 backdrop-blur-xl p-8 text-center shadow-2xl">
+          <div className="flex justify-center mb-4">
             <div
               className={cn(
-                'size-16 rounded-full grid place-items-center shadow-lg',
+                'size-14 rounded-full grid place-items-center shadow-lg',
                 didWin
                   ? 'bg-gradient-to-br from-primary to-arena-amber'
-                  : 'bg-gradient-to-br from-destructive to-arena-violet',
+                  : 'bg-gradient-to-br from-arena-violet to-secondary',
               )}
             >
               {didWin ? (
-                <Crown className="size-8 text-background" strokeWidth={2.5} />
+                <Crown className="size-7 text-background" strokeWidth={2.5} />
               ) : (
-                <Swords className="size-7 text-background" strokeWidth={2.5} />
+                <Trophy className="size-7 text-background" strokeWidth={2.5} />
               )}
             </div>
           </div>
           <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-2">
             Match ended
           </div>
-          <h2 className="font-display text-4xl font-bold mb-3 tracking-tight">
+          <h2 className="font-display text-3xl font-bold mb-5 tracking-tight">
             {didWin ? (
               <span className="bg-gradient-to-r from-primary via-arena-amber to-secondary bg-clip-text text-transparent">
                 Victory
               </span>
+            ) : myPlacement ? (
+              <span className="text-foreground">
+                You finished #{myPlacement}
+              </span>
             ) : (
-              <span className="text-foreground">{winnerName ?? 'Someone'} won</span>
+              <span className="text-foreground">Match complete</span>
             )}
           </h2>
-          <p className="text-muted-foreground text-sm mb-7">
-            {didWin ? 'First to pass all tests. Nice work.' : 'They solved it first. Rematch?'}
-          </p>
-          <Button onClick={onHome} variant="primary" size="lg" className="w-full">
-            <Home />
-            Back to home
-          </Button>
+
+          <ul className="space-y-2 mb-6 text-left">
+            {placements.map((p) => {
+              const delta = eloDeltas[p.userId] ?? 0
+              const me = p.userId === currentUserId
+              return (
+                <li
+                  key={p.userId}
+                  className={cn(
+                    'flex items-center gap-3 rounded-lg border px-3 py-2',
+                    me ? 'bg-primary/10 border-primary/40' : 'bg-card/60 border-border',
+                  )}
+                >
+                  <div
+                    className={cn(
+                      'size-7 rounded-full grid place-items-center text-xs font-bold font-display',
+                      p.placement === 1
+                        ? 'bg-arena-amber text-background'
+                        : p.placement === 2
+                          ? 'bg-muted-foreground/80 text-background'
+                          : p.placement === 3
+                            ? 'bg-arena-amber/60 text-background'
+                            : 'bg-muted text-muted-foreground',
+                    )}
+                  >
+                    {p.placement}
+                  </div>
+                  {avatarById.get(p.userId) ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={avatarById.get(p.userId)!}
+                      alt=""
+                      className="size-7 rounded-full bg-muted/40 border border-border"
+                    />
+                  ) : (
+                    <div className="size-7 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 border border-border grid place-items-center">
+                      <span className="text-xs font-bold font-display">
+                        {(nameById.get(p.userId) ?? '?').slice(0, 1).toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm truncate">
+                      {nameById.get(p.userId) ?? 'Unknown'}
+                      {me && <span className="text-muted-foreground ml-1">(you)</span>}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5">
+                      <span>
+                        {p.testsPassed}/{match.playerStates?.[p.userId]?.totalTests ?? 0} tests
+                        {p.finishedAt && ' · finished'}
+                      </span>
+                      {!me && h2h[p.userId] && h2h[p.userId].matches > 0 && (
+                        <H2HBadge record={h2h[p.userId]} />
+                      )}
+                    </div>
+                  </div>
+                  <div
+                    className={cn(
+                      'font-mono text-xs tabular-nums',
+                      delta > 0
+                        ? 'text-arena-emerald'
+                        : delta < 0
+                          ? 'text-destructive'
+                          : 'text-muted-foreground',
+                    )}
+                  >
+                    {delta > 0 ? '+' : ''}
+                    {delta} ELO
+                  </div>
+                  {!me && (
+                    <EndFriendAction
+                      opponentId={p.userId}
+                      username={nameById.get(p.userId) ?? ''}
+                      state={friendships[p.userId]}
+                      onAdd={() =>
+                        addFriend(p.userId, nameById.get(p.userId) ?? '')
+                      }
+                    />
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+
+          {rematchError && (
+            <p className="mb-3 text-xs text-destructive text-center">{rematchError}</p>
+          )}
+
+          <div className="flex gap-2">
+            {opponentIds.length > 0 && (
+              <Button
+                onClick={rematch}
+                disabled={rematching}
+                variant="primary"
+                size="lg"
+                className="flex-1"
+              >
+                {rematching ? <Loader2 className="animate-spin" /> : <RotateCcw />}
+                Rematch
+              </Button>
+            )}
+            <Button
+              onClick={onHome}
+              variant={opponentIds.length > 0 ? 'outline' : 'primary'}
+              size="lg"
+              className="flex-1"
+            >
+              <Home />
+              Home
+            </Button>
+          </div>
         </div>
       </div>
     </div>
+  )
+}
+
+function H2HBadge({ record }: { record: H2HRecord }) {
+  const dominant = record.wins > record.losses
+  const even = record.wins === record.losses
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+        even
+          ? 'bg-muted/40 text-muted-foreground'
+          : dominant
+            ? 'bg-arena-emerald/10 text-arena-emerald'
+            : 'bg-destructive/10 text-destructive',
+      )}
+      title={`${record.matches} previous ${record.matches === 1 ? 'match' : 'matches'}`}
+    >
+      <Flame className="size-2.5" />
+      {record.wins}-{record.losses}
+    </span>
+  )
+}
+
+function EndFriendAction({
+  opponentId: _opponentId,
+  username,
+  state,
+  onAdd,
+}: {
+  opponentId: string
+  username: string
+  state: FriendshipState | undefined
+  onAdd: () => void
+}) {
+  if (!username) return null
+  if (state?.status === 'accepted') {
+    return (
+      <span className="text-[10px] text-arena-emerald font-semibold uppercase tracking-wider">
+        Friend
+      </span>
+    )
+  }
+  if (state?.status === 'pending') {
+    return (
+      <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
+        {state.iRequested ? 'Requested' : 'Pending'}
+      </span>
+    )
+  }
+  return (
+    <button
+      onClick={onAdd}
+      className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 text-primary px-2 py-1 text-[10px] font-semibold hover:bg-primary/20 transition-colors"
+      title="Add as friend"
+    >
+      <UserPlus className="size-3" />
+      Add
+    </button>
   )
 }

@@ -21,21 +21,28 @@ type Match = {
   roomCode: string
   problemId: string
   players: MatchPlayer[]
-  solvers: string[]
-  winnerId: string | null
   status: 'active' | 'finished'
   startedAt: number
+  endsAt: number
   endedAt: number | null
   playerStates: Record<string, PlayerGameState>
+  placements: Array<{ userId: string; placement: number; testsPassed: number; finishedAt: number | null }>
   isPublic?: boolean
 }
 
-async function pickProblemId(): Promise<string | null> {
+type PickedProblem = { id: string; totalTests: number; durationSec: number }
+
+async function pickProblem(): Promise<PickedProblem | null> {
   const count = await db.problem.count()
   if (count === 0) return null
   const skip = Math.floor(Math.random() * count)
-  const row = await db.problem.findFirst({ skip, select: { id: true } })
-  return row?.id ?? null
+  const row = await db.problem.findFirst({
+    skip,
+    select: { id: true, testCases: true, matchDurationSec: true },
+  })
+  if (!row) return null
+  const tests = Array.isArray(row.testCases) ? row.testCases.length : 0
+  return { id: row.id, totalTests: tests, durationSec: row.matchDurationSec }
 }
 
 async function publishUpdate(): Promise<void> {
@@ -72,8 +79,8 @@ async function popPlayers(max: number): Promise<MatchPlayer[]> {
 }
 
 async function createPublicMatch(players: MatchPlayer[]): Promise<Match | null> {
-  const problemId = await pickProblemId()
-  if (!problemId) return null
+  const problem = await pickProblem()
+  if (!problem) return null
 
   const playerStates: Record<string, PlayerGameState> = {}
   for (const p of players) {
@@ -85,20 +92,26 @@ async function createPublicMatch(players: MatchPlayer[]): Promise<Match | null> 
       mirage: false,
       cooldowns: {},
       nukeUsed: false,
+      testsPassed: 0,
+      totalTests: problem.totalTests,
+      lastSubmitAt: 0,
+      finishedAt: null,
+      placement: null,
     }
   }
 
+  const now = Date.now()
   const match: Match = {
     id: randomUUID(),
     roomCode: `QM-${genCode().slice(0, 4)}`,
-    problemId,
+    problemId: problem.id,
     players,
-    solvers: [],
-    winnerId: null,
     status: 'active',
-    startedAt: Date.now(),
+    startedAt: now,
+    endsAt: now + problem.durationSec * 1000,
     endedAt: null,
     playerStates,
+    placements: [],
     isPublic: true,
   }
 
@@ -117,7 +130,81 @@ async function queueHasAdmin(): Promise<boolean> {
   })
 }
 
+async function getQueuedPlayers(): Promise<MatchPlayer[]> {
+  const all = await redis.hvals(PLAYERS_KEY)
+  const out: MatchPlayer[] = []
+  for (const row of all) {
+    try {
+      out.push(JSON.parse(row) as MatchPlayer)
+    } catch {
+      /* skip */
+    }
+  }
+  return out
+}
+
+const FILL_TARGET = 3
+
+async function fillWithBots(humanPlayers: MatchPlayer[]): Promise<number> {
+  const needed = Math.max(0, FILL_TARGET - humanPlayers.length)
+  if (needed === 0) return 0
+
+  const avgElo =
+    humanPlayers.reduce((s, p) => s + p.elo, 0) / Math.max(1, humanPlayers.length)
+
+  // Pick bots near the human elo, skipping any already in queue
+  const queuedIds = new Set(humanPlayers.map((p) => p.userId))
+  const candidates = await db.user.findMany({
+    where: { isBot: true, id: { notIn: Array.from(queuedIds) } },
+    select: { id: true, username: true, elo: true, avatarUrl: true },
+  })
+  candidates.sort((a, b) => Math.abs(a.elo - avgElo) - Math.abs(b.elo - avgElo))
+
+  const chosen = candidates.slice(0, needed)
+  const now = Date.now()
+  for (const bot of chosen) {
+    const entry: MatchPlayer = {
+      userId: bot.id,
+      username: bot.username,
+      elo: bot.elo,
+      avatarUrl: bot.avatarUrl,
+      joinedAt: now,
+    }
+    await redis.zadd(MEMBERS_KEY, entry.joinedAt, entry.userId)
+    await redis.hset(PLAYERS_KEY, entry.userId, JSON.stringify(entry))
+  }
+  return chosen.length
+}
+
+async function maybeFillWithBots(): Promise<void> {
+  const endsRaw = await redis.get(COUNTDOWN_KEY)
+  if (!endsRaw) return
+  const ends = Number(endsRaw)
+  const elapsed = QUICKMATCH.COUNTDOWN_MS - (ends - Date.now())
+  if (elapsed < QUICKMATCH.BOT_FILL_DELAY_MS) return
+
+  const humans = await getQueuedPlayers()
+  if (humans.length === 0) return
+  if (humans.length >= FILL_TARGET) return
+
+  // Lock so we don't fill twice across ticks
+  const gotLock = await redis.set('queue:quickmatch:fill_lock', '1', 'EX', 5, 'NX')
+  if (gotLock !== 'OK') return
+
+  try {
+    const added = await fillWithBots(humans)
+    if (added > 0) {
+      console.log(`[matchmaker] filled queue with ${added} bot(s)`)
+      await publishUpdate()
+    }
+  } finally {
+    await redis.del('queue:quickmatch:fill_lock')
+  }
+}
+
 async function tick(): Promise<void> {
+  await maybeFillWithBots()
+
   const count = await redis.zcard(MEMBERS_KEY)
   if (count < 1) return
 

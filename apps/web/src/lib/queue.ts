@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { QUICKMATCH, type QueuedPlayer, type QueueStatus } from '@code-arena/types'
 import { redis } from './redis'
 
@@ -5,10 +6,24 @@ const MEMBERS_KEY = 'queue:quickmatch:members'
 const PLAYERS_KEY = 'queue:quickmatch:players'
 const COUNTDOWN_KEY = 'queue:quickmatch:countdown'
 const EVENTS_CHANNEL = 'queue:quickmatch:events'
+const CHAT_KEY = 'queue:quickmatch:chat'
+const CHAT_HISTORY_LIMIT = 50
+const CHAT_TTL_SEC = 60 * 15
+export const QUEUE_CHAT_MAX_LENGTH = 280
+
+export type QueueChatMessage = {
+  id: string
+  userId: string
+  username: string
+  avatarUrl: string | null
+  text: string
+  sentAt: number
+}
 
 type QueueEvent =
   | { type: 'update'; count: number; countdownEnds: number | null }
   | { type: 'matched'; matchId: string; userIds: string[] }
+  | { type: 'chat_message'; message: QueueChatMessage }
 
 async function publishUpdate(): Promise<{ count: number; countdownEnds: number | null }> {
   const count = await redis.zcard(MEMBERS_KEY)
@@ -57,6 +72,47 @@ export async function leaveQuickmatch(userId: string): Promise<QueueStatus> {
 
   const { count: newCount, countdownEnds } = await publishUpdate()
   return { inQueue: false, count: newCount, countdownEnds }
+}
+
+export async function postQuickmatchChat(
+  sender: { userId: string; username: string; avatarUrl: string | null },
+  text: string,
+): Promise<QueueChatMessage> {
+  const inQueue = await redis.zscore(MEMBERS_KEY, sender.userId)
+  if (inQueue === null) throw new Error('NOT_IN_QUEUE')
+
+  const trimmed = text.replace(/\s+$/g, '').slice(0, QUEUE_CHAT_MAX_LENGTH)
+  if (!trimmed) throw new Error('EMPTY_MESSAGE')
+
+  const message: QueueChatMessage = {
+    id: randomUUID(),
+    userId: sender.userId,
+    username: sender.username,
+    avatarUrl: sender.avatarUrl,
+    text: trimmed,
+    sentAt: Date.now(),
+  }
+
+  await redis.rpush(CHAT_KEY, JSON.stringify(message))
+  await redis.ltrim(CHAT_KEY, -CHAT_HISTORY_LIMIT, -1)
+  await redis.expire(CHAT_KEY, CHAT_TTL_SEC)
+
+  const ev: QueueEvent = { type: 'chat_message', message }
+  await redis.publish(EVENTS_CHANNEL, JSON.stringify(ev))
+  return message
+}
+
+export async function getQuickmatchChat(): Promise<QueueChatMessage[]> {
+  const raw = await redis.lrange(CHAT_KEY, -CHAT_HISTORY_LIMIT, -1)
+  return raw
+    .map((j) => {
+      try {
+        return JSON.parse(j) as QueueChatMessage
+      } catch {
+        return null
+      }
+    })
+    .filter((m): m is QueueChatMessage => !!m)
 }
 
 export async function quickmatchStatus(userId: string): Promise<QueueStatus> {

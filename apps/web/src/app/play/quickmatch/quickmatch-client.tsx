@@ -8,6 +8,7 @@ import { QUICKMATCH, type QueueStatus } from '@code-arena/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { ChatPanel, type ChatMessageView } from '@/components/chat-panel'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
@@ -23,6 +24,7 @@ export function QuickMatchClient({
   const [error, setError] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
   const [now, setNow] = useState(Date.now())
+  const [chat, setChat] = useState<ChatMessageView[]>([])
   const joinedRef = useRef(false)
 
   const { count, countdownEnds } = status
@@ -77,6 +79,12 @@ export function QuickMatchClient({
           }
         })
 
+        socket.on('queue:chat', ({ message }: { message: ChatMessageView }) => {
+          setChat((prev) =>
+            prev.some((m) => m.id === message.id) ? prev : [...prev, message],
+          )
+        })
+
         socket.on('connect_error', (err) => setError(`Socket: ${err.message}`))
       } catch (e) {
         setError((e as Error).message)
@@ -95,6 +103,20 @@ export function QuickMatchClient({
     const onUnload = () => navigator.sendBeacon('/api/queue/quickmatch/beacon')
     window.addEventListener('beforeunload', onUnload)
     return () => window.removeEventListener('beforeunload', onUnload)
+  }, [])
+
+  // Chat history on mount
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const res = await fetch('/api/queue/quickmatch/chat')
+      if (!res.ok || cancelled) return
+      const data = await res.json()
+      setChat(data.messages ?? [])
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   async function handleCancel() {
@@ -130,7 +152,7 @@ export function QuickMatchClient({
       </header>
 
       <section className="relative z-10 flex-1 flex items-center justify-center p-6">
-        <div className="w-full max-w-lg animate-fade-in-up">
+        <div className="w-full max-w-lg animate-fade-in-up space-y-6">
           <Card className="shadow-glow">
             <CardContent className="p-10">
               {/* Radar-ish icon */}
@@ -238,6 +260,24 @@ export function QuickMatchClient({
               )}
             </CardContent>
           </Card>
+
+          <ChatPanel
+            currentUserId={currentUserId}
+            messages={chat}
+            subtitle="Queue chat"
+            emptyHint="Nobody's said anything yet. Stake your claim."
+            onSend={async (text) => {
+              const res = await fetch('/api/queue/quickmatch/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text }),
+              })
+              if (!res.ok) {
+                const d = await res.json().catch(() => ({}))
+                throw new Error(d.error ?? 'Failed to send')
+              }
+            }}
+          />
         </div>
       </section>
     </main>

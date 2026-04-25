@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { io, type Socket } from 'socket.io-client'
 import {
+  Bot,
   Check,
   Copy,
   Crown,
@@ -12,29 +13,49 @@ import {
   Swords,
   Users,
 } from 'lucide-react'
-import type { Room, RoomPlayer } from '@/lib/rooms'
+import type { ChatMessage, Room, RoomPlayer } from '@/lib/rooms'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { InvitePanel } from '@/components/invite-panel'
+import { ChatPanel } from '@/components/chat-panel'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
 export function LobbyClient({
   initialRoom,
   currentUserId,
+  isAdmin = false,
 }: {
   initialRoom: Room
   currentUserId: string
+  isAdmin?: boolean
 }) {
   const router = useRouter()
   const [room, setRoom] = useState<Room>(initialRoom)
   const [joining, startJoin] = useTransition()
   const [starting, startStart] = useTransition()
+  const [addingBot, startAddBot] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [chat, setChat] = useState<ChatMessage[]>([])
 
   const isMember = room.players.some((p) => p.userId === currentUserId)
   const isHost = room.hostId === currentUserId
+
+  useEffect(() => {
+    if (!isMember) return
+    let cancelled = false
+    ;(async () => {
+      const res = await fetch(`/api/rooms/${room.code}/chat`)
+      if (!res.ok || cancelled) return
+      const data = await res.json()
+      setChat(data.messages ?? [])
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isMember, room.code])
 
   useEffect(() => {
     if (isMember) return
@@ -84,6 +105,12 @@ export function LobbyClient({
           router.push(`/match/${matchId}`)
         })
 
+        socket.on('lobby:chat', ({ message }: { message: ChatMessage }) => {
+          setChat((prev) =>
+            prev.some((m) => m.id === message.id) ? prev : [...prev, message],
+          )
+        })
+
         socket.on('connect_error', (err) => setError(`Socket: ${err.message}`))
       } catch (e) {
         setError((e as Error).message)
@@ -111,6 +138,23 @@ export function LobbyClient({
           const body = await res.json().catch(() => ({}))
           throw new Error(body.error ?? `HTTP ${res.status}`)
         }
+      } catch (e) {
+        setError((e as Error).message)
+      }
+    })
+  }
+
+  async function handleAddBot() {
+    startAddBot(async () => {
+      setError(null)
+      try {
+        const res = await fetch(`/api/rooms/${room.code}/add-bot`, { method: 'POST' })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.error ?? `HTTP ${res.status}`)
+        }
+        const { room: updated } = await res.json()
+        setRoom(updated)
       } catch (e) {
         setError((e as Error).message)
       }
@@ -228,12 +272,65 @@ export function LobbyClient({
             </CardContent>
           </Card>
 
+          {/* Chat */}
+          {isMember && (
+            <div className="mt-6">
+              <ChatPanel
+                currentUserId={currentUserId}
+                messages={chat}
+                subtitle="Lobby chat"
+                onSend={async (text) => {
+                  const res = await fetch(`/api/rooms/${room.code}/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text }),
+                  })
+                  if (!res.ok) {
+                    const d = await res.json().catch(() => ({}))
+                    throw new Error(d.error ?? 'Failed to send')
+                  }
+                }}
+              />
+            </div>
+          )}
+
+          {/* Invite players */}
+          {room.status === 'waiting' && isMember && (
+            <div className="mt-6">
+              <InvitePanel
+                roomCode={room.code}
+                excludeUserIds={room.players.map((p) => p.userId)}
+              />
+            </div>
+          )}
+
           {/* Action */}
-          <div className="mt-6">
+          <div className="mt-6 space-y-3">
+            {isAdmin && isHost && room.players.length < 10 && (
+              <Button
+                onClick={handleAddBot}
+                disabled={addingBot}
+                variant="outline"
+                size="sm"
+                className="w-full"
+              >
+                {addingBot ? (
+                  <>
+                    <Loader2 className="animate-spin" />
+                    Adding bot…
+                  </>
+                ) : (
+                  <>
+                    <Bot />
+                    Add bot opponent
+                  </>
+                )}
+              </Button>
+            )}
             {isHost ? (
               <Button
                 onClick={handleStart}
-                disabled={starting || room.players.length < 2}
+                disabled={starting || (!isAdmin && room.players.length < 2)}
                 size="xl"
                 variant="primary"
                 className="w-full"
@@ -243,7 +340,7 @@ export function LobbyClient({
                     <Loader2 className="animate-spin" />
                     Starting match…
                   </>
-                ) : room.players.length < 2 ? (
+                ) : !isAdmin && room.players.length < 2 ? (
                   <>Waiting for at least 2 players…</>
                 ) : (
                   <>
@@ -268,3 +365,4 @@ export function LobbyClient({
     </main>
   )
 }
+
