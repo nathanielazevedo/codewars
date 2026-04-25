@@ -69,7 +69,7 @@ Code Arena is a real-time multiplayer DSA coding battle platform. Players solve 
 ### Code Execution
 | Layer | Choice | Reason |
 |---|---|---|
-| Execution API | **Judge0 CE** | Open-source, self-hostable, 60+ languages, sandboxed with cgroups |
+| Execution API | **Piston** | Open-source, self-hostable, 35+ languages, sandboxed via isolate/nsjail |
 | Deployment | **Dedicated EC2 instance (isolated VPC subnet)** | Separate from main app; malicious submissions cannot affect core infra |
 
 ### Infrastructure
@@ -122,7 +122,7 @@ Code Arena is a real-time multiplayer DSA coding battle platform. Players solve 
                                                   └──────┬─────────────┘
                                                          │ BullMQ job
                                                   ┌──────▼─────────────┐
-                                                  │  EC2 (Judge0 CE)   │
+                                                  │  EC2 (Piston)      │
                                                   │  isolated subnet   │
                                                   └────────────────────┘
 ```
@@ -132,7 +132,7 @@ Code Arena is a real-time multiplayer DSA coding battle platform. Players solve 
 - **Monorepo** with `apps/web` (Next.js) and `apps/api` (Express) under a single `pnpm` workspace — shared TypeScript types in `packages/types`
 - **Game state is authoritative in Redis**, never in ECS container memory — allows horizontal scaling without sticky sessions
 - **Weapon effects validated server-side** — clients cannot fake AP balances or replay weapon events
-- **Judge0 runs in an isolated VPC subnet** with no inbound internet access — only the API server's security group can reach it on port 2358
+- **Piston runs in an isolated VPC subnet** with no inbound internet access — only the API server's security group can reach it on port 2000
 - **ALB sticky sessions** (duration-based cookie, 30-min TTL) keep Socket.io clients on the same ECS task during a match
 
 ---
@@ -154,7 +154,7 @@ VPC: 10.0.0.0/16
 │   └── ElastiCache Redis primary + replica
 │
 └── Isolated Subnet (10.0.21.0/24)
-    └── EC2 (Judge0) — no internet route, only reachable from private subnet
+    └── EC2 (Piston) — no internet route, only reachable from private subnet
 ```
 
 ### Security Groups
@@ -162,10 +162,10 @@ VPC: 10.0.0.0/16
 | Resource | Inbound | Outbound |
 |---|---|---|
 | ALB | 80, 443 from 0.0.0.0/0 | 3001 to ECS SG |
-| ECS tasks | 3001 from ALB SG only | 5432 to RDS SG, 6379 to Redis SG, 2358 to Judge0 SG, 443 to internet (OAuth) |
+| ECS tasks | 3001 from ALB SG only | 5432 to RDS SG, 6379 to Redis SG, 2000 to Piston SG, 443 to internet (OAuth) |
 | RDS | 5432 from ECS SG only | None |
 | ElastiCache | 6379 from ECS SG only | None |
-| Judge0 EC2 | 2358 from ECS SG only | None |
+| Piston EC2 | 2000 from ECS SG only | None |
 
 ### ECS Fargate Service
 
@@ -203,7 +203,7 @@ Persistence:  AOF enabled (appendfsync everysec)
 Failover:     automatic (replica promoted in ~30s)
 ```
 
-### EC2 — Judge0
+### EC2 — Piston
 
 ```
 Instance:   c5.xlarge (4 vCPU, 8 GB RAM)
@@ -476,10 +476,10 @@ Push job → BullMQ queue "submissions" (priority: normal)
       │
 BullMQ worker picks up job
       │
-      ├── Run visible test cases via Judge0  (~1s, fast feedback)
+      ├── Run visible test cases via Piston  (~1s, fast feedback)
       │         └── Any fail → return wrong_answer, stop here
       │
-      └── Run hidden test cases via Judge0  (scoring + complexity bonus)
+      └── Run hidden test cases via Piston  (scoring + complexity bonus)
                 └── All pass → accepted
                       │
                       ├── Update Redis (score, ap, solved list) via pipeline
@@ -487,35 +487,25 @@ BullMQ worker picks up job
                       └── Emit player:solved to match room (Socket.io)
 ```
 
-### Judge0 Integration
+### Piston Integration
 
 ```typescript
-// apps/api/src/services/judge0.ts
+// apps/web/src/lib/piston.ts
 
-const LANGUAGE_IDS: Record<string, number> = {
-  python3:    71,
-  javascript: 63,
-  typescript: 74,
-  java:       62,
-  cpp17:      54,
-  go:         60,
-  rust:       73,
-}
-
-async function runTestCase(params: RunParams): Promise<Judge0Result> {
-  const res = await fetch(`${process.env.JUDGE0_URL}/submissions?wait=true`, {
+async function runTestCase(params: RunParams): Promise<PistonResult> {
+  const res = await fetch(`${process.env.PISTON_URL}/api/v2/execute`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Auth-Token': process.env.JUDGE0_API_KEY!,
+      ...(process.env.PISTON_SECRET ? { 'X-Piston-Secret': process.env.PISTON_SECRET } : {}),
     },
     body: JSON.stringify({
-      language_id:     LANGUAGE_IDS[params.language],
-      source_code:     Buffer.from(params.code).toString('base64'),
-      stdin:           Buffer.from(params.input).toString('base64'),
-      expected_output: Buffer.from(params.expectedOutput).toString('base64'),
-      cpu_time_limit:  params.timeLimitMs / 1000,
-      memory_limit:    params.memoryLimitMb * 1024,
+      language:          params.language,        // 'javascript' | 'python' | ...
+      version:           '*',                    // pin to latest installed
+      files:             [{ content: params.code }],
+      stdin:             params.input,
+      run_timeout:       params.timeLimitMs,
+      run_memory_limit:  params.memoryLimitMb * 1024 * 1024,
     }),
   })
   return res.json()
@@ -807,7 +797,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 /code-arena/prod/NEXTAUTH_SECRET
 /code-arena/prod/DATABASE_URL
 /code-arena/prod/REDIS_URL
-/code-arena/prod/JUDGE0_API_KEY
+/code-arena/prod/PISTON_SECRET
 ```
 
 ECS task IAM role has `secretsmanager:GetSecretValue` scoped to `/code-arena/prod/*` only.
@@ -1048,9 +1038,9 @@ io.adapter(createAdapter(pub, sub))
 
 ALB sticky sessions (`AWSALB` cookie, 30-min TTL) keep Socket.io reconnects landing on the same task — this reduces cross-task pub/sub chatter without being required for correctness.
 
-### Judge0 Horizontal Scaling
+### Piston Horizontal Scaling
 
-At high load, run multiple Judge0 workers behind an **internal ALB** (not internet-facing) within the isolated subnet. BullMQ handles backpressure gracefully — submissions queue up rather than timing out when Judge0 is saturated.
+At high load, run multiple Piston workers behind an **internal ALB** (not internet-facing) within the isolated subnet. BullMQ handles backpressure gracefully — submissions queue up rather than timing out when Piston is saturated.
 
 ### Database Scaling
 
@@ -1074,7 +1064,7 @@ Monthly estimate for moderate production scale (~1,000 DAU, ~200 concurrent matc
 | ECS Fargate | 2 tasks × 0.5 vCPU / 1 GB, ~730h | ~$30 |
 | RDS PostgreSQL | db.t3.medium, Multi-AZ, 100 GB gp3 | ~$80 |
 | ElastiCache Redis | cache.t3.medium + 1 replica | ~$60 |
-| EC2 Judge0 | c5.xlarge, on-demand | ~$120 |
+| EC2 Piston | c5.xlarge, on-demand | ~$120 |
 | ALB | ~1M LCUs/month | ~$20 |
 | S3 + CloudFront | 50 GB storage, 1 TB egress | ~$25 |
 | AWS Amplify | build minutes + hosting | ~$5 |
@@ -1083,7 +1073,7 @@ Monthly estimate for moderate production scale (~1,000 DAU, ~200 concurrent matc
 | Route 53 | 1 hosted zone + queries | ~$3 |
 | **Total** | | **~$360/month** |
 
-> **Cost tip:** Judge0 EC2 is the single biggest line item. During early development, use the [hosted Judge0 API](https://judge0.com) (~$29/month) to avoid running an EC2. Swap to self-hosted once you need predictable latency and volume.
+> **Cost tip:** Piston EC2 is the single biggest line item. During early development, run Piston in the same ECS task as the API (or a smaller t3.medium) to cut this in half. Swap to a dedicated c5.xlarge once you need predictable latency and volume.
 
 ---
 

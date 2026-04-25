@@ -1,6 +1,7 @@
 import { auth } from '@/auth'
 import { db } from '@code-arena/db'
 import { getPresence } from '@/lib/presence'
+import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit'
 import { NextResponse } from 'next/server'
 
 // GET /api/friends — list friends + pending requests
@@ -67,6 +68,9 @@ export async function POST(req: Request) {
   if (!username || typeof username !== 'string') {
     return NextResponse.json({ error: 'Username is required' }, { status: 400 })
   }
+
+  const rl = await checkRateLimit('friend', session.user.id)
+  if (!rl.ok) return rateLimitResponse(rl.retryAfterSec)
 
   const target = await db.user.findUnique({ where: { username } })
   if (!target) {

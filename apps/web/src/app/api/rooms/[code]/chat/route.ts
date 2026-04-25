@@ -5,6 +5,7 @@ import {
   getChatHistory,
   postChatMessage,
 } from '@/lib/rooms'
+import { checkChatRateLimit } from '@/lib/chat-mod'
 import { NextResponse } from 'next/server'
 
 export async function GET(
@@ -38,6 +39,14 @@ export async function POST(
   }
   if (text.length > CHAT_MESSAGE_MAX_LENGTH) {
     return NextResponse.json({ error: 'TOO_LONG' }, { status: 400 })
+  }
+
+  const rl = await checkChatRateLimit(session.user.id)
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: 'RATE_LIMITED', retryAfterSec: rl.retryAfterSec },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } },
+    )
   }
 
   const { code } = await params

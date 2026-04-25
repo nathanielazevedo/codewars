@@ -2,7 +2,10 @@ import { auth } from '@/auth'
 import { getMatch, readMatch, writeMatch, publishEvent, recordProgress } from '@/lib/matches'
 import { getProblem, type Language } from '@/lib/problems'
 import { runTestCase, type TestResult, type ExecutionStatus } from '@/lib/piston'
+import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit'
 import { NextResponse } from 'next/server'
+
+const MAX_CODE_LENGTH = 100_000
 
 export async function POST(req: Request) {
   const session = await auth()
@@ -18,6 +21,12 @@ export async function POST(req: Request) {
   if (!body.matchId || !body.language || typeof body.code !== 'string') {
     return NextResponse.json({ error: 'BAD_REQUEST' }, { status: 400 })
   }
+  if (body.code.length > MAX_CODE_LENGTH) {
+    return NextResponse.json({ error: 'CODE_TOO_LONG' }, { status: 413 })
+  }
+
+  const rl = await checkRateLimit('submit', session.user.id)
+  if (!rl.ok) return rateLimitResponse(rl.retryAfterSec)
 
   const match = await getMatch(body.matchId)
   if (!match) return NextResponse.json({ error: 'MATCH_NOT_FOUND' }, { status: 404 })
@@ -56,10 +65,13 @@ export async function POST(req: Request) {
   let overallStatus: ExecutionStatus = 'accepted'
   let passedCount = 0
 
+  const harness = problem.harness?.[body.language] ?? ''
+  const fullCode = body.code + (harness ? `\n${harness}` : '')
+
   for (const tc of problem.testCases) {
     const r = await runTestCase({
       language: body.language,
-      code: body.code,
+      code: fullCode,
       stdin: tc.input,
       expectedOutput: tc.expectedOutput,
       timeLimitMs: problem.timeLimitMs,

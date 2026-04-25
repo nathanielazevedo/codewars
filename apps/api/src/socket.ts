@@ -42,6 +42,38 @@ async function markInMatch(userId: string, matchId: string | null) {
   )
 }
 
+async function getMatchPlayerIds(matchId: string): Promise<Set<string> | null> {
+  const json = await redis.get(`match:${matchId}`)
+  if (!json) return null
+  try {
+    const m = JSON.parse(json) as { players: { userId: string }[] }
+    return new Set(m.players.map((p) => p.userId))
+  } catch {
+    return null
+  }
+}
+
+async function isRoomMember(code: string, userId: string): Promise<boolean> {
+  const json = await redis.get(`room:${code}`)
+  if (!json) return false
+  try {
+    const r = JSON.parse(json) as { players: { userId: string }[] }
+    return r.players.some((p) => p.userId === userId)
+  } catch {
+    return false
+  }
+}
+
+async function emitSpectatorCount(io: Server, matchId: string, playerIds: Set<string>) {
+  const sockets = await io.in(`match:${matchId}`).fetchSockets()
+  const spectatorIds = new Set<string>()
+  for (const s of sockets) {
+    const uid = (s.data as { userId?: string }).userId
+    if (uid && !playerIds.has(uid)) spectatorIds.add(uid)
+  }
+  io.to(`match:${matchId}`).emit('match:viewer_count', { count: spectatorIds.size })
+}
+
 type RoomPlayer = {
   userId: string
   username: string
@@ -75,7 +107,7 @@ type Placement = {
 type MatchEvent =
   | { type: 'player_progress'; userId: string; username: string; testsPassed: number; totalTests: number; finishedAt: number | null }
   | { type: 'player_finished'; userId: string; username: string; finishedAt: number }
-  | { type: 'game_end'; placements: Placement[]; eloDeltas: Record<string, number> }
+  | { type: 'game_end'; placements: Placement[]; eloDeltas: Record<string, number>; xpDeltas: Record<string, number> }
   | { type: 'weapon_used'; weaponType: string; attackerId: string; attackerUsername: string; targetId: string; duration: number }
   | { type: 'weapon_blocked'; weaponType: string; attackerId: string; attackerUsername: string; targetId: string }
   | { type: 'ap_update'; userId: string; ap: number }
@@ -106,7 +138,12 @@ export function setupSocket(io: Server) {
 
     socket.on('room:join', ({ code }: { code: string }) => {
       if (typeof code !== 'string') return
-      socket.join(`room:${code.toUpperCase()}`)
+      const upper = code.toUpperCase()
+      void (async () => {
+        if (await isRoomMember(upper, userId)) {
+          socket.join(`room:${upper}`)
+        }
+      })().catch((err) => console.error('[room:join] error:', err))
     })
 
     socket.on('room:leave', ({ code }: { code: string }) => {
@@ -117,17 +154,28 @@ export function setupSocket(io: Server) {
     socket.on('match:join', ({ matchId }: { matchId: string }) => {
       if (typeof matchId !== 'string') return
       socket.join(`match:${matchId}`)
-      void markInMatch(userId, matchId).catch((err) =>
-        console.error('[presence] in_match error:', err),
-      )
+      void (async () => {
+        const playerIds = await getMatchPlayerIds(matchId)
+        if (playerIds?.has(userId)) {
+          await markInMatch(userId, matchId)
+        } else {
+          ;(socket.data as { spectatingMatchId?: string }).spectatingMatchId = matchId
+        }
+        if (playerIds) await emitSpectatorCount(io, matchId, playerIds)
+      })().catch((err) => console.error('[match:join] error:', err))
     })
 
     socket.on('match:leave', ({ matchId }: { matchId: string }) => {
       if (typeof matchId !== 'string') return
       socket.leave(`match:${matchId}`)
-      void markInMatch(userId, null).catch((err) =>
-        console.error('[presence] in_match error:', err),
-      )
+      ;(socket.data as { spectatingMatchId?: string }).spectatingMatchId = undefined
+      void (async () => {
+        const playerIds = await getMatchPlayerIds(matchId)
+        if (playerIds?.has(userId)) {
+          await markInMatch(userId, null)
+        }
+        if (playerIds) await emitSpectatorCount(io, matchId, playerIds)
+      })().catch((err) => console.error('[match:leave] error:', err))
     })
 
     socket.on('queue:enter', () => {
@@ -140,9 +188,16 @@ export function setupSocket(io: Server) {
 
     socket.on('disconnect', () => {
       console.log(`[socket] - ${socket.data.username}`)
+      const spectatingMatchId = (socket.data as { spectatingMatchId?: string }).spectatingMatchId
       void markOffline(userId, socket.id).catch((err) =>
         console.error('[presence] offline error:', err),
       )
+      if (spectatingMatchId) {
+        void (async () => {
+          const playerIds = await getMatchPlayerIds(spectatingMatchId)
+          if (playerIds) await emitSpectatorCount(io, spectatingMatchId, playerIds)
+        })().catch((err) => console.error('[disconnect spectator] error:', err))
+      }
     })
   })
 
@@ -261,6 +316,7 @@ export function setupSocket(io: Server) {
           io.to(socketRoom).emit('game:end', {
             placements: event.placements,
             eloDeltas: event.eloDeltas,
+            xpDeltas: event.xpDeltas,
           })
           break
         case 'tick':

@@ -14,6 +14,7 @@ export type Problem = {
   description: string
   difficulty: 'easy' | 'medium' | 'hard'
   starterCode: Record<Language, string>
+  harness: Record<Language, string>
   testCases: TestCase[]
   timeLimitMs: number
   memoryLimitMb: number
@@ -27,6 +28,7 @@ function toProblem(row: {
   description: string
   difficulty: string
   starterCode: unknown
+  harness: unknown
   testCases: unknown
   timeLimitMs: number
   memoryLimitMb: number
@@ -39,6 +41,7 @@ function toProblem(row: {
     description: row.description,
     difficulty: row.difficulty as Problem['difficulty'],
     starterCode: (row.starterCode ?? {}) as Record<Language, string>,
+    harness: (row.harness ?? {}) as Record<Language, string>,
     testCases: (row.testCases ?? []) as TestCase[],
     timeLimitMs: row.timeLimitMs,
     memoryLimitMb: row.memoryLimitMb,

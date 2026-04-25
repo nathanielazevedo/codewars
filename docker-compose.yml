@@ -31,6 +31,10 @@ services:
       retries: 5
 
   # ---- Piston (code execution engine) --------------------------------
+  # SECURITY: `privileged: true` is required for Piston's nsjail sandbox in
+  # local dev. DO NOT ship this to production unmodified — Piston should run
+  # on an isolated host/VM with its own network and a dropped capability set.
+  # See design.md > "EC2 — Piston" for the production deployment plan.
   piston:
     image: ghcr.io/engineer-man/piston
     container_name: codearena-piston

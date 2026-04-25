@@ -120,10 +120,13 @@ export function MatchClient({
   )
   const [endPlacements, setEndPlacements] = useState<Placement[] | null>(null)
   const [endEloDeltas, setEndEloDeltas] = useState<Record<string, number>>({})
+  const [endXpDeltas, setEndXpDeltas] = useState<Record<string, number>>({})
   const notifIdRef = useRef(0)
   const codeRef = useRef(code)
   codeRef.current = code
 
+  const isSpectator = !match.players.some((p) => p.userId === currentUserId)
+  const [viewerCount, setViewerCount] = useState(0)
   const myState: PlayerGameState | undefined = match.playerStates?.[currentUserId]
   const ap = myState?.ap ?? 0
   const isOver = match.status === 'finished'
@@ -212,12 +215,15 @@ export function MatchClient({
         ({
           placements,
           eloDeltas,
+          xpDeltas,
         }: {
           placements: Placement[]
           eloDeltas: Record<string, number>
+          xpDeltas: Record<string, number>
         }) => {
           setEndPlacements(placements)
           setEndEloDeltas(eloDeltas ?? {})
+          setEndXpDeltas(xpDeltas ?? {})
           setMatch((m) => ({ ...m, status: 'finished', placements, endedAt: Date.now() }))
         },
       )
@@ -277,6 +283,10 @@ export function MatchClient({
             [userId]: { ...m.playerStates[userId], ap: newAp },
           },
         }))
+      })
+
+      socket.on('match:viewer_count', ({ count }: { count: number }) => {
+        setViewerCount(count)
       })
     })()
 
@@ -445,26 +455,43 @@ export function MatchClient({
 
           <div className="h-6 w-px bg-border" />
 
-          <div
-            className={cn(
-              'flex items-center gap-2 px-3 py-1.5 rounded-md border font-mono text-sm transition-all',
-              ap > 0
-                ? 'border-arena-amber/40 bg-arena-amber/10 text-arena-amber shadow-glow-amber'
-                : 'border-border bg-muted/30 text-muted-foreground',
-            )}
-          >
-            <Zap className="size-3.5" />
-            <span className="font-semibold tabular-nums">{ap}</span>
-            <span className="text-xs opacity-60">AP</span>
-          </div>
+          {isSpectator ? (
+            <Badge variant="secondary" className="gap-1.5">
+              <Eye className="size-3" />
+              Spectating
+            </Badge>
+          ) : (
+            <div
+              className={cn(
+                'flex items-center gap-2 px-3 py-1.5 rounded-md border font-mono text-sm transition-all',
+                ap > 0
+                  ? 'border-arena-amber/40 bg-arena-amber/10 text-arena-amber shadow-glow-amber'
+                  : 'border-border bg-muted/30 text-muted-foreground',
+              )}
+            >
+              <Zap className="size-3.5" />
+              <span className="font-semibold tabular-nums">{ap}</span>
+              <span className="text-xs opacity-60">AP</span>
+            </div>
+          )}
 
           <TimerPill ms={timeRemainingMs} />
 
-          {myState?.shield && (
+          {!isSpectator && myState?.shield && (
             <Badge variant="primary" className="gap-1 animate-pulse-glow">
               <Shield className="size-3" />
               Shield
             </Badge>
+          )}
+
+          {viewerCount > 0 && (
+            <div
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border bg-muted/30 text-muted-foreground text-xs font-mono"
+              title={`${viewerCount} ${viewerCount === 1 ? 'viewer' : 'viewers'}`}
+            >
+              <Eye className="size-3" />
+              <span className="tabular-nums">{viewerCount}</span>
+            </div>
           )}
         </div>
 
@@ -476,15 +503,17 @@ export function MatchClient({
         </div>
       </header>
 
-      <WeaponBar
-        ap={ap}
-        myState={myState}
-        selectedTarget={selectedTarget}
-        isOver={isOver}
-        isFrozen={isFrozen || hasFreezeEffect}
-        firingWeapon={firingWeapon}
-        onFire={fireWeapon}
-      />
+      {!isSpectator && (
+        <WeaponBar
+          ap={ap}
+          myState={myState}
+          selectedTarget={selectedTarget}
+          isOver={isOver}
+          isFrozen={isFrozen || hasFreezeEffect}
+          firingWeapon={firingWeapon}
+          onFire={fireWeapon}
+        />
+      )}
 
       <div className="flex-1 flex min-h-0">
         <Sidebar
@@ -492,6 +521,7 @@ export function MatchClient({
           currentUserId={currentUserId}
           selectedTarget={selectedTarget}
           onSelectTarget={(id) => setSelectedTarget((prev) => (prev === id ? null : id))}
+          disableTargeting={isSpectator}
         />
 
         <section className="flex-1 border-r border-border/80 overflow-hidden flex flex-col min-w-0">
@@ -514,6 +544,10 @@ export function MatchClient({
         </section>
 
         <section className="w-[46%] flex flex-col min-h-0 relative bg-card/20">
+          {isSpectator ? (
+            <SpectatorPanel scoreboard={scoreboard} viewerCount={viewerCount} isOver={isOver} />
+          ) : (
+          <>
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/80 bg-card/40 backdrop-blur-sm">
             <div className="flex items-center gap-2">
               <select
@@ -602,6 +636,8 @@ export function MatchClient({
             )}
           </div>
           {result && <ResultPanel result={result} />}
+          </>
+          )}
         </section>
       </div>
 
@@ -629,8 +665,10 @@ export function MatchClient({
           match={match}
           placements={endPlacements ?? match.placements}
           eloDeltas={endEloDeltas}
+          xpDeltas={endXpDeltas}
           myPlacement={myPlacement}
           currentUserId={currentUserId}
+          isSpectator={isSpectator}
           onHome={() => router.push('/')}
         />
       )}
@@ -681,11 +719,13 @@ function Sidebar({
   currentUserId,
   selectedTarget,
   onSelectTarget,
+  disableTargeting = false,
 }: {
   scoreboard: Row[]
   currentUserId: string
   selectedTarget: string | null
   onSelectTarget: (id: string) => void
+  disableTargeting?: boolean
 }) {
   return (
     <aside className="w-60 shrink-0 border-r border-border/80 bg-card/20 backdrop-blur-sm flex flex-col">
@@ -701,11 +741,12 @@ function Sidebar({
           const isTarget = row.userId === selectedTarget
           const pct = row.totalTests ? (row.testsPassed / row.totalTests) * 100 : 0
           const done = row.finishedAt !== null
+          const clickable = !me && !disableTargeting
           return (
             <button
               key={row.userId}
-              onClick={() => !me && onSelectTarget(row.userId)}
-              disabled={me}
+              onClick={() => clickable && onSelectTarget(row.userId)}
+              disabled={!clickable}
               className={cn(
                 'w-full text-left rounded-lg border transition-all p-2.5',
                 isTarget
@@ -714,7 +755,9 @@ function Sidebar({
                     ? 'bg-arena-emerald/10 border-arena-emerald/40'
                     : me
                       ? 'bg-primary/10 border-primary/40'
-                      : 'bg-card/40 border-border hover:border-destructive/50 hover:bg-destructive/5 cursor-pointer',
+                      : clickable
+                        ? 'bg-card/40 border-border hover:border-destructive/50 hover:bg-destructive/5 cursor-pointer'
+                        : 'bg-card/40 border-border cursor-default',
               )}
             >
               <div className="flex items-center gap-2 mb-1.5">
@@ -786,6 +829,131 @@ function Sidebar({
         })}
       </div>
     </aside>
+  )
+}
+
+function SpectatorPanel({
+  scoreboard,
+  viewerCount,
+  isOver,
+}: {
+  scoreboard: Row[]
+  viewerCount: number
+  isOver: boolean
+}) {
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/80 bg-card/40 backdrop-blur-sm">
+        <div className="flex items-center gap-2">
+          <Eye className="size-3.5 text-muted-foreground" />
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono">
+            Spectator View
+          </span>
+        </div>
+        {viewerCount > 0 && (
+          <span className="text-[10px] text-muted-foreground font-mono tabular-nums">
+            {viewerCount} watching
+          </span>
+        )}
+      </div>
+      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        <div className="text-center py-6">
+          <div className="size-14 mx-auto mb-3 rounded-full bg-secondary/15 border border-secondary/40 grid place-items-center">
+            <Eye className="size-6 text-secondary" />
+          </div>
+          <div className="font-display font-semibold text-lg">
+            {isOver ? 'Match Ended' : 'Watching Live'}
+          </div>
+          <div className="text-muted-foreground text-xs mt-1">
+            {isOver ? 'Final standings on the left' : 'Follow players in real time'}
+          </div>
+        </div>
+        <div className="space-y-2">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono mb-2">
+            Players
+          </div>
+          {scoreboard.map((row, idx) => {
+            const pct = row.totalTests ? (row.testsPassed / row.totalTests) * 100 : 0
+            const done = row.finishedAt !== null
+            return (
+              <div
+                key={row.userId}
+                className={cn(
+                  'rounded-lg border p-3',
+                  done
+                    ? 'bg-arena-emerald/10 border-arena-emerald/40'
+                    : 'bg-card/40 border-border',
+                )}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <div
+                    className={cn(
+                      'size-6 rounded-full grid place-items-center text-[11px] font-bold font-display shrink-0',
+                      idx === 0
+                        ? 'bg-arena-amber text-background'
+                        : idx === 1
+                          ? 'bg-muted-foreground/80 text-background'
+                          : idx === 2
+                            ? 'bg-arena-amber/60 text-background'
+                            : 'bg-muted text-muted-foreground',
+                    )}
+                  >
+                    {idx + 1}
+                  </div>
+                  {row.avatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={row.avatarUrl}
+                      alt=""
+                      className="size-7 rounded-full bg-muted/40 border border-border shrink-0"
+                    />
+                  ) : (
+                    <div className="size-7 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 border border-border grid place-items-center shrink-0">
+                      <span className="text-xs font-bold font-display">
+                        {row.username.slice(0, 1).toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium truncate flex items-center gap-1.5">
+                      {row.username}
+                      {row.hasShield && <Shield className="size-3 text-primary" />}
+                      {row.frozen && <Snowflake className="size-3 text-primary animate-pulse" />}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground font-mono tabular-nums flex items-center gap-1.5">
+                      <Zap className="size-2.5 text-arena-amber/80" />
+                      {row.ap} AP
+                      {done && (
+                        <span className="text-arena-emerald ml-auto flex items-center gap-0.5">
+                          <Check className="size-2.5" />
+                          finished
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-2 rounded-full bg-muted/40 overflow-hidden">
+                    <div
+                      className={cn(
+                        'h-full transition-all',
+                        done
+                          ? 'bg-gradient-to-r from-arena-emerald to-arena-emerald/70'
+                          : 'bg-gradient-to-r from-primary to-secondary',
+                      )}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <span className="text-[11px] font-mono tabular-nums text-muted-foreground shrink-0">
+                    {row.testsPassed}/{row.totalTests}
+                  </span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -965,15 +1133,19 @@ function EndOverlay({
   match,
   placements,
   eloDeltas,
+  xpDeltas,
   myPlacement,
   currentUserId,
+  isSpectator,
   onHome,
 }: {
   match: Match
   placements: Placement[]
   eloDeltas: Record<string, number>
+  xpDeltas: Record<string, number>
   myPlacement: number | null
   currentUserId: string
+  isSpectator: boolean
   onHome: () => void
 }) {
   const router = useRouter()
@@ -995,7 +1167,7 @@ function EndOverlay({
   )
 
   useEffect(() => {
-    if (!opponentIds.length) return
+    if (!opponentIds.length || isSpectator) return
     let cancelled = false
     ;(async () => {
       const res = await fetch(
@@ -1009,7 +1181,7 @@ function EndOverlay({
     return () => {
       cancelled = true
     }
-  }, [opponentIds])
+  }, [opponentIds, isSpectator])
 
   async function addFriend(opponentId: string, username: string) {
     const res = await fetch('/api/friends', {
@@ -1082,7 +1254,9 @@ function EndOverlay({
             Match ended
           </div>
           <h2 className="font-display text-3xl font-bold mb-5 tracking-tight">
-            {didWin ? (
+            {isSpectator ? (
+              <span className="text-foreground">Match complete</span>
+            ) : didWin ? (
               <span className="bg-gradient-to-r from-primary via-arena-amber to-secondary bg-clip-text text-transparent">
                 Victory
               </span>
@@ -1098,6 +1272,7 @@ function EndOverlay({
           <ul className="space-y-2 mb-6 text-left">
             {placements.map((p) => {
               const delta = eloDeltas[p.userId] ?? 0
+              const xpDelta = xpDeltas[p.userId] ?? 0
               const me = p.userId === currentUserId
               return (
                 <li
@@ -1150,20 +1325,24 @@ function EndOverlay({
                       )}
                     </div>
                   </div>
-                  <div
-                    className={cn(
-                      'font-mono text-xs tabular-nums',
-                      delta > 0
-                        ? 'text-arena-emerald'
-                        : delta < 0
-                          ? 'text-destructive'
-                          : 'text-muted-foreground',
+                  <div className="font-mono text-xs tabular-nums text-right">
+                    <div
+                      className={cn(
+                        delta > 0
+                          ? 'text-arena-emerald'
+                          : delta < 0
+                            ? 'text-destructive'
+                            : 'text-muted-foreground',
+                      )}
+                    >
+                      {delta > 0 ? '+' : ''}
+                      {delta} ELO
+                    </div>
+                    {xpDelta > 0 && (
+                      <div className="text-arena-amber">+{xpDelta} XP</div>
                     )}
-                  >
-                    {delta > 0 ? '+' : ''}
-                    {delta} ELO
                   </div>
-                  {!me && (
+                  {!me && !isSpectator && (
                     <EndFriendAction
                       opponentId={p.userId}
                       username={nameById.get(p.userId) ?? ''}
@@ -1183,7 +1362,7 @@ function EndOverlay({
           )}
 
           <div className="flex gap-2">
-            {opponentIds.length > 0 && (
+            {opponentIds.length > 0 && !isSpectator && (
               <Button
                 onClick={rematch}
                 disabled={rematching}
@@ -1197,7 +1376,7 @@ function EndOverlay({
             )}
             <Button
               onClick={onHome}
-              variant={opponentIds.length > 0 ? 'outline' : 'primary'}
+              variant={opponentIds.length > 0 && !isSpectator ? 'outline' : 'primary'}
               size="lg"
               className="flex-1"
             >

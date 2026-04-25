@@ -3,6 +3,10 @@ import type { Language } from './problems'
 const PISTON_URL = process.env.PISTON_URL ?? 'http://localhost:2000'
 const PISTON_SECRET = process.env.PISTON_SECRET
 
+if (process.env.NODE_ENV === 'production' && !PISTON_SECRET) {
+  throw new Error('PISTON_SECRET must be set in production')
+}
+
 const LANGUAGE_VERSIONS: Record<Language, { language: string; version: string }> = {
   javascript: { language: 'javascript', version: '*' },
   python: { language: 'python', version: '*' },

@@ -61,6 +61,7 @@ model Problem {
   difficulty    String   @db.VarChar(8)
   tags          String[] @default([])
   starterCode   Json     @default("{}") @map("starter_code")
+  harness       Json     @default("{}")
   solutions     Json     @default("{}")
   testCases     Json     @map("test_cases")
   timeLimitMs      Int @default(2000) @map("time_limit_ms")

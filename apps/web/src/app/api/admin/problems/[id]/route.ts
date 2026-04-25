@@ -23,7 +23,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   if (!existing) return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 })
 
   const body = await req.json()
-  const { title, slug, description, difficulty, tags, starterCode, testCases, timeLimitMs, memoryLimitMb } = body
+  const { title, slug, description, difficulty, tags, starterCode, harness, testCases, timeLimitMs, memoryLimitMb } = body
 
   if (slug && slug !== existing.slug) {
     if (!/^[a-z0-9-]+$/.test(slug)) {
@@ -42,6 +42,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       ...(difficulty !== undefined && { difficulty }),
       ...(tags !== undefined && { tags }),
       ...(starterCode !== undefined && { starterCode }),
+      ...(harness !== undefined && { harness }),
       ...(testCases !== undefined && { testCases }),
       ...(timeLimitMs !== undefined && { timeLimitMs }),
       ...(memoryLimitMb !== undefined && { memoryLimitMb }),

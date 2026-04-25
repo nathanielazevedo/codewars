@@ -71,6 +71,22 @@ function rankPlayers(match: Match): Placement[] {
   }))
 }
 
+const XP_PARTICIPATION = 10
+const XP_SOLVED = 50
+const XP_BY_PLACEMENT: Record<number, number> = { 1: 50, 2: 25, 3: 10 }
+
+function computeXpDeltas(match: Match, placements: Placement[]): Record<string, number> {
+  const deltas: Record<string, number> = {}
+  for (const p of placements) {
+    const state = match.playerStates[p.userId]
+    let xp = XP_PARTICIPATION
+    if (state?.finishedAt !== null) xp += XP_SOLVED
+    xp += XP_BY_PLACEMENT[p.placement] ?? 0
+    deltas[p.userId] = xp
+  }
+  return deltas
+}
+
 function computeEloDeltas(match: Match, placements: Placement[]): Record<string, number> {
   const n = placements.length
   if (n <= 1) return Object.fromEntries(placements.map((p) => [p.userId, 0]))
@@ -109,22 +125,31 @@ async function finalize(matchId: string): Promise<void> {
       if (s) s.placement = p.placement
     }
     const eloDeltas = computeEloDeltas(match, placements)
+    const xpDeltas = computeXpDeltas(match, placements)
 
     match.placements = placements
     match.status = 'finished'
     match.endedAt = Date.now()
     await writeMatch(match)
 
-    for (const [userId, delta] of Object.entries(eloDeltas)) {
-      if (!delta) continue
+    for (const userId of new Set([...Object.keys(eloDeltas), ...Object.keys(xpDeltas)])) {
+      const eloDelta = eloDeltas[userId] ?? 0
+      const xpDelta = xpDeltas[userId] ?? 0
+      if (!eloDelta && !xpDelta) continue
       try {
-        await db.user.update({ where: { id: userId }, data: { elo: { increment: delta } } })
+        await db.user.update({
+          where: { id: userId },
+          data: {
+            ...(eloDelta ? { elo: { increment: eloDelta } } : {}),
+            ...(xpDelta ? { xp: { increment: xpDelta } } : {}),
+          },
+        })
       } catch {
         /* bot or missing row */
       }
     }
 
-    await publishEvent(matchId, { type: 'game_end', placements, eloDeltas })
+    await publishEvent(matchId, { type: 'game_end', placements, eloDeltas, xpDeltas })
     console.log(`[match-ticker] finalized ${matchId}`)
   } finally {
     await redis.del(lockKey)

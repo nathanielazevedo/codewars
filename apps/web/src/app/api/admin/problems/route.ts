@@ -18,7 +18,7 @@ export async function POST(req: Request) {
   if (error) return error
 
   const body = await req.json()
-  const { title, slug, description, difficulty, tags, starterCode, testCases, timeLimitMs, memoryLimitMb } = body
+  const { title, slug, description, difficulty, tags, starterCode, harness, testCases, timeLimitMs, memoryLimitMb } = body
 
   if (!title || !slug || !description || !difficulty) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -41,6 +41,7 @@ export async function POST(req: Request) {
       difficulty,
       tags: tags ?? [],
       starterCode: starterCode ?? {},
+      harness: harness ?? {},
       testCases: testCases ?? [],
       timeLimitMs: timeLimitMs ?? 2000,
       memoryLimitMb: memoryLimitMb ?? 256,

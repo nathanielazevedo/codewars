@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { QUICKMATCH, type QueuedPlayer, type QueueStatus } from '@code-arena/types'
 import { redis } from './redis'
+import { censorProfanity } from './chat-mod'
 
 const MEMBERS_KEY = 'queue:quickmatch:members'
 const PLAYERS_KEY = 'queue:quickmatch:players'
@@ -89,7 +90,7 @@ export async function postQuickmatchChat(
     userId: sender.userId,
     username: sender.username,
     avatarUrl: sender.avatarUrl,
-    text: trimmed,
+    text: censorProfanity(trimmed),
     sentAt: Date.now(),
   }
 

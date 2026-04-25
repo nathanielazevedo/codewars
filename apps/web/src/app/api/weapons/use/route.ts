@@ -1,5 +1,6 @@
 import { auth } from '@/auth'
 import { useWeapon } from '@/lib/weapons'
+import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit'
 import type { WeaponType } from '@code-arena/types'
 import { NextResponse } from 'next/server'
 
@@ -27,6 +28,9 @@ export async function POST(req: Request) {
   if (!VALID_WEAPONS.has(body.weaponType)) {
     return NextResponse.json({ error: 'INVALID_WEAPON' }, { status: 400 })
   }
+
+  const rl = await checkRateLimit('weapon', session.user.id)
+  if (!rl.ok) return rateLimitResponse(rl.retryAfterSec)
 
   const result = await useWeapon(
     body.matchId,

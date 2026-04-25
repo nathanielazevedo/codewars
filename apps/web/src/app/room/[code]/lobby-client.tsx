@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { io, type Socket } from 'socket.io-client'
 import {
@@ -42,6 +42,7 @@ export function LobbyClient({
 
   const isMember = room.players.some((p) => p.userId === currentUserId)
   const isHost = room.hostId === currentUserId
+  const socketRef = useRef<Socket | null>(null)
 
   useEffect(() => {
     if (!isMember) return
@@ -87,6 +88,7 @@ export function LobbyClient({
         if (cancelled) return
 
         socket = io(API_URL, { auth: { token } })
+        socketRef.current = socket
         socket.on('connect', () => socket!.emit('room:join', { code: room.code }))
 
         socket.on('lobby:player_joined', ({ player }: { player: RoomPlayer }) => {
@@ -119,9 +121,16 @@ export function LobbyClient({
 
     return () => {
       cancelled = true
+      socketRef.current = null
       socket?.disconnect()
     }
   }, [room.code, router])
+
+  useEffect(() => {
+    if (!isMember) return
+    const s = socketRef.current
+    if (s?.connected) s.emit('room:join', { code: room.code })
+  }, [isMember, room.code])
 
   useEffect(() => {
     const onUnload = () => navigator.sendBeacon(`/api/rooms/${room.code}/leave`)
@@ -287,6 +296,9 @@ export function LobbyClient({
                   })
                   if (!res.ok) {
                     const d = await res.json().catch(() => ({}))
+                    if (res.status === 429) {
+                      throw new Error(`Slow down — try again in ${d.retryAfterSec ?? 'a few'}s`)
+                    }
                     throw new Error(d.error ?? 'Failed to send')
                   }
                 }}

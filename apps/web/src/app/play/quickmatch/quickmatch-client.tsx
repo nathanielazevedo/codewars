@@ -274,6 +274,9 @@ export function QuickMatchClient({
               })
               if (!res.ok) {
                 const d = await res.json().catch(() => ({}))
+                if (res.status === 429) {
+                  throw new Error(`Slow down — try again in ${d.retryAfterSec ?? 'a few'}s`)
+                }
                 throw new Error(d.error ?? 'Failed to send')
               }
             }}

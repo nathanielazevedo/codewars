@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { customAlphabet } from 'nanoid'
 import { redis } from './redis'
+import { censorProfanity } from './chat-mod'
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const genCode = customAlphabet(CODE_ALPHABET, 6)
@@ -129,7 +130,7 @@ export async function postChatMessage(
     userId: sender.userId,
     username: sender.username,
     avatarUrl: sender.avatarUrl ?? null,
-    text: trimmed,
+    text: censorProfanity(trimmed),
     sentAt: Date.now(),
   }
 

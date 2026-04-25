@@ -45,24 +45,25 @@ Output:
   // your solution here
 
 }
-
-// ---- stdin handler (don't modify) ----
-const lines = require('fs').readFileSync(0, 'utf8').trim().split('\\n')
-const nums = JSON.parse(lines[0])
-const target = parseInt(lines[1], 10)
-console.log(JSON.stringify(twoSum(nums, target)))
 `,
-    python: `import sys, json
-
-def two_sum(nums, target):
+    python: `def two_sum(nums, target):
     # your solution here
     pass
-
-# ---- stdin handler (don't modify) ----
-lines = sys.stdin.read().strip().split('\\n')
-nums = json.loads(lines[0])
-target = int(lines[1])
-print(json.dumps(two_sum(nums, target)))
+`,
+  },
+  harness: {
+    javascript: `
+const __lines = require('fs').readFileSync(0, 'utf8').trim().split('\\n')
+const __nums = JSON.parse(__lines[0])
+const __target = parseInt(__lines[1], 10)
+console.log(JSON.stringify(twoSum(__nums, __target)))
+`,
+    python: `
+import sys as __sys, json as __json
+__lines = __sys.stdin.read().strip().split('\\n')
+__nums = __json.loads(__lines[0])
+__target = int(__lines[1])
+print(__json.dumps(two_sum(__nums, __target)))
 `,
   },
   testCases: [
