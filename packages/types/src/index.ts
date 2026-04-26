@@ -28,6 +28,30 @@ export const WEAPONS: Record<WeaponType, WeaponConfig> = {
 
 export const INITIAL_AP = 200
 
+export const PROBLEM_CATEGORIES = [
+  'arrays_hashing',
+  'two_pointers',
+  'sliding_window',
+  'stack',
+  'binary_search',
+  'linked_list',
+  'trees',
+  'dp',
+] as const
+
+export type ProblemCategory = (typeof PROBLEM_CATEGORIES)[number]
+
+export const PROBLEM_CATEGORY_LABELS: Record<ProblemCategory, string> = {
+  arrays_hashing: 'Arrays & Hashing',
+  two_pointers: 'Two Pointers',
+  sliding_window: 'Sliding Window',
+  stack: 'Stack',
+  binary_search: 'Binary Search',
+  linked_list: 'Linked List',
+  trees: 'Trees',
+  dp: 'Dynamic Programming',
+}
+
 export const QUICKMATCH = {
   MIN_PLAYERS: 2,
   MAX_PLAYERS: 10,
@@ -86,6 +110,7 @@ export interface QueueStatus {
   inQueue: boolean
   count: number
   countdownEnds: number | null
+  players: QueuedPlayer[]
 }
 
 export type RankTier = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'master'

@@ -1,4 +1,5 @@
 import type { Server, Socket } from 'socket.io'
+import type { QueuedPlayer } from '@code-arena/types'
 import { verifyArenaToken } from './jwt.js'
 import { redis, redisSub } from './redis.js'
 
@@ -209,7 +210,7 @@ export function setupSocket(io: Server) {
   redisSub.on('message', (channel, message) => {
     if (channel === 'queue:quickmatch:events') {
       let event:
-        | { type: 'update'; count: number; countdownEnds: number | null }
+        | { type: 'update'; count: number; countdownEnds: number | null; players: QueuedPlayer[] }
         | { type: 'matched'; matchId: string; userIds: string[] }
         | { type: 'chat_message'; message: ChatMessage }
       try {
@@ -221,6 +222,7 @@ export function setupSocket(io: Server) {
         io.to('queue:quickmatch').emit('queue:update', {
           count: event.count,
           countdownEnds: event.countdownEnds,
+          players: event.players ?? [],
         })
       } else if (event.type === 'matched') {
         io.to('queue:quickmatch').emit('queue:matched', {

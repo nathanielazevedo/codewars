@@ -45,12 +45,36 @@ async function pickProblem(): Promise<PickedProblem | null> {
   return { id: row.id, totalTests: tests, durationSec: row.matchDurationSec }
 }
 
+async function listQueuePlayers(): Promise<QueuedPlayer[]> {
+  const userIds = await redis.zrange(MEMBERS_KEY, 0, -1)
+  if (userIds.length === 0) return []
+  const rows = await redis.hmget(PLAYERS_KEY, ...userIds)
+  const out: QueuedPlayer[] = []
+  for (const row of rows) {
+    if (!row) continue
+    try {
+      out.push(JSON.parse(row) as QueuedPlayer)
+    } catch {
+      /* skip corrupt entry */
+    }
+  }
+  return out
+}
+
 async function publishUpdate(): Promise<void> {
-  const count = await redis.zcard(MEMBERS_KEY)
-  const ends = await redis.get(COUNTDOWN_KEY)
+  const [count, ends, players] = await Promise.all([
+    redis.zcard(MEMBERS_KEY),
+    redis.get(COUNTDOWN_KEY),
+    listQueuePlayers(),
+  ])
   await redis.publish(
     EVENTS_CHANNEL,
-    JSON.stringify({ type: 'update', count, countdownEnds: ends ? Number(ends) : null }),
+    JSON.stringify({
+      type: 'update',
+      count,
+      countdownEnds: ends ? Number(ends) : null,
+      players,
+    }),
   )
 }
 

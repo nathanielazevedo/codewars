@@ -36,6 +36,16 @@ export default async function SignInPage() {
             </p>
             <GitHubSignInButton />
             <DevSignIn />
+            <p className="text-[11px] text-muted-foreground text-center mt-5 leading-relaxed">
+              By signing in, you agree to our{' '}
+              <Link
+                href="/conduct"
+                className="text-primary hover:underline underline-offset-2"
+              >
+                Code of Conduct
+              </Link>
+              .
+            </p>
           </CardContent>
         </Card>
       </div>

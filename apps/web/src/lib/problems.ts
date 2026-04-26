@@ -1,4 +1,5 @@
 import { db } from '@code-arena/db'
+import type { ProblemCategory } from '@code-arena/types'
 
 export type Language = 'javascript' | 'python'
 
@@ -13,6 +14,7 @@ export type Problem = {
   title: string
   description: string
   difficulty: 'easy' | 'medium' | 'hard'
+  category: ProblemCategory
   starterCode: Record<Language, string>
   harness: Record<Language, string>
   testCases: TestCase[]
@@ -27,6 +29,7 @@ function toProblem(row: {
   title: string
   description: string
   difficulty: string
+  category: string
   starterCode: unknown
   harness: unknown
   testCases: unknown
@@ -40,6 +43,7 @@ function toProblem(row: {
     title: row.title,
     description: row.description,
     difficulty: row.difficulty as Problem['difficulty'],
+    category: row.category as ProblemCategory,
     starterCode: (row.starterCode ?? {}) as Record<Language, string>,
     harness: (row.harness ?? {}) as Record<Language, string>,
     testCases: (row.testCases ?? []) as TestCase[],

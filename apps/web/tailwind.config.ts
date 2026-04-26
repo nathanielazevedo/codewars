@@ -95,9 +95,45 @@ const config: Config = {
           '25%': { transform: 'translateX(-3px)' },
           '75%': { transform: 'translateX(3px)' },
         },
+        'shake-hard': {
+          '0%, 100%': { transform: 'translate(0, 0)' },
+          '10%': { transform: 'translate(-3px, -1px)' },
+          '20%': { transform: 'translate(3px, 1px)' },
+          '30%': { transform: 'translate(-3px, 1px)' },
+          '40%': { transform: 'translate(3px, -1px)' },
+          '50%': { transform: 'translate(-2px, 1px)' },
+          '60%': { transform: 'translate(2px, 0)' },
+          '70%': { transform: 'translate(-3px, -1px)' },
+          '80%': { transform: 'translate(3px, 1px)' },
+          '90%': { transform: 'translate(-1px, 0)' },
+        },
         scan: {
           '0%': { transform: 'translateY(-100%)' },
           '100%': { transform: 'translateY(100%)' },
+        },
+        'pulse-danger': {
+          '0%, 100%': {
+            color: 'hsl(var(--arena-rose))',
+            textShadow: '0 0 16px hsl(var(--arena-rose) / 0.6)',
+            transform: 'scale(1)',
+          },
+          '50%': {
+            color: 'hsl(var(--arena-amber))',
+            textShadow: '0 0 32px hsl(var(--arena-rose) / 0.95)',
+            transform: 'scale(1.08)',
+          },
+        },
+        'hit-flash': {
+          '0%': { opacity: '0', transform: 'scale(1.05)' },
+          '15%': { opacity: '1', transform: 'scale(1)' },
+          '100%': { opacity: '0', transform: 'scale(1)' },
+        },
+        'incoming-banner': {
+          '0%': { opacity: '0', transform: 'translateY(-30px) scale(0.85)' },
+          '15%': { opacity: '1', transform: 'translateY(0) scale(1.04)' },
+          '25%': { transform: 'translateY(0) scale(1)' },
+          '85%': { opacity: '1', transform: 'translateY(0) scale(1)' },
+          '100%': { opacity: '0', transform: 'translateY(-12px) scale(0.97)' },
         },
       },
       animation: {
@@ -106,7 +142,11 @@ const config: Config = {
         'fade-in-up': 'fade-in-up 250ms ease-out',
         'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
         shake: 'shake 0.4s ease-in-out',
+        'shake-hard': 'shake-hard 0.5s ease-in-out',
         scan: 'scan 3s linear infinite',
+        'pulse-danger': 'pulse-danger 1s ease-in-out infinite',
+        'hit-flash': 'hit-flash 450ms ease-out forwards',
+        'incoming-banner': 'incoming-banner 1500ms ease-out forwards',
       },
       backgroundImage: {
         'arena-grid':

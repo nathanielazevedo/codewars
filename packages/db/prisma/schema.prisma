@@ -59,6 +59,7 @@ model Problem {
   slug          String   @unique @db.VarChar(255)
   description   String
   difficulty    String   @db.VarChar(8)
+  category      String   @default("arrays_hashing") @db.VarChar(32)
   tags          String[] @default([])
   starterCode   Json     @default("{}") @map("starter_code")
   harness       Json     @default("{}")
@@ -73,6 +74,7 @@ model Problem {
   submissions Submission[]
 
   @@index([difficulty])
+  @@index([category])
   @@map("problems")
 }
 

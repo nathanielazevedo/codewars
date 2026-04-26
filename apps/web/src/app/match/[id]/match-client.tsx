@@ -7,6 +7,7 @@ import {
   Bomb,
   Check,
   Clock,
+  Crosshair,
   Crown,
   Eye,
   Flame,
@@ -33,6 +34,8 @@ import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CodeEditor } from '@/components/code-editor'
+import { SoundToggle } from '@/components/sound-toggle'
+import { playSound, preloadSounds } from '@/lib/sounds'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
@@ -83,6 +86,18 @@ const WEAPON_LABEL: Record<WeaponType, string> = {
   nuke: 'Nuke',
 }
 
+// CSS color tokens used for hit-flash overlay + banner accent per weapon
+const WEAPON_FLASH: Record<WeaponType, string> = {
+  freeze: 'arena-cyan',
+  screen_lock: 'destructive',
+  shuffle: 'arena-violet',
+  mirage: 'arena-violet',
+  code_bomb: 'arena-rose',
+  shield: 'arena-cyan',
+  time_warp: 'arena-amber',
+  nuke: 'arena-rose',
+}
+
 const DIFF_VARIANT: Record<string, 'emerald' | 'amber' | 'rose' | 'default'> = {
   easy: 'emerald',
   medium: 'amber',
@@ -112,9 +127,17 @@ export function MatchClient({
   const [submitting, startSubmit] = useTransition()
   const [result, setResult] = useState<SubmitResponse | null>(null)
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null)
+  const [armedWeapon, setArmedWeapon] = useState<WeaponType | null>(null)
   const [activeEffects, setActiveEffects] = useState<ActiveEffect[]>([])
   const [notifications, setNotifications] = useState<WeaponNotification[]>([])
   const [firingWeapon, setFiringWeapon] = useState(false)
+  const [hitFlash, setHitFlash] = useState<{ id: number; weapon: WeaponType } | null>(null)
+  const [bigIncoming, setBigIncoming] = useState<{
+    id: number
+    weapon: WeaponType
+    attacker: string
+  } | null>(null)
+  const [opponentHits, setOpponentHits] = useState<Record<string, number>>({})
   const [timeRemainingMs, setTimeRemainingMs] = useState<number>(
     Math.max(0, initialMatch.endsAt - Date.now()),
   )
@@ -124,14 +147,29 @@ export function MatchClient({
   const notifIdRef = useRef(0)
   const codeRef = useRef(code)
   codeRef.current = code
+  const lastTimeRef = useRef<number>(initialMatch.endsAt - Date.now())
 
   const isSpectator = !match.players.some((p) => p.userId === currentUserId)
   const [viewerCount, setViewerCount] = useState(0)
+
+  useEffect(() => {
+    preloadSounds()
+  }, [])
   const myState: PlayerGameState | undefined = match.playerStates?.[currentUserId]
   const ap = myState?.ap ?? 0
   const isOver = match.status === 'finished'
   const myPlacement = endPlacements?.find((p) => p.userId === currentUserId)?.placement ?? null
   const isFrozen = (myState?.frozenUntil ?? 0) > Date.now()
+
+  // ESC disarms an armed weapon
+  useEffect(() => {
+    if (!armedWeapon) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setArmedWeapon(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [armedWeapon])
   const myFinished = (myState?.finishedAt ?? null) !== null
 
   const addNotification = useCallback((message: string, type: WeaponNotification['type']) => {
@@ -202,12 +240,18 @@ export function MatchClient({
         ({ userId, username }: { userId: string; username: string }) => {
           if (userId !== currentUserId) {
             addNotification(`${username} finished all tests`, 'info')
+            playSound('opponent-solved')
           }
         },
       )
 
       socket.on('game:tick', ({ timeRemainingMs: t }: { timeRemainingMs: number }) => {
+        const prev = lastTimeRef.current
+        lastTimeRef.current = t
         setTimeRemainingMs(t)
+        if ((prev > 60_000 && t <= 60_000) || (prev > 10_000 && t <= 10_000)) {
+          playSound('timer-warning')
+        }
       })
 
       socket.on(
@@ -249,12 +293,33 @@ export function MatchClient({
               `${attackerUsername} used ${WEAPON_LABEL[weaponType]} on ${targetName}`,
               'info',
             )
+            // Brief shake/flash on the targeted opponent's sidebar card
+            setOpponentHits((prev) => ({ ...prev, [targetId]: Date.now() + 700 }))
+            setTimeout(() => {
+              setOpponentHits((prev) => {
+                const next = { ...prev }
+                if ((next[targetId] ?? 0) <= Date.now()) delete next[targetId]
+                return next
+              })
+            }, 750)
             return
           }
           addNotification(
             `${attackerUsername} hit you with ${WEAPON_LABEL[weaponType]}!`,
             'incoming',
           )
+          playSound('weapon-hit')
+          // Cinematic hit visuals
+          const flashId = Date.now()
+          setHitFlash({ id: flashId, weapon: weaponType })
+          setTimeout(() => {
+            setHitFlash((prev) => (prev?.id === flashId ? null : prev))
+          }, 450)
+          const bannerId = flashId + 1
+          setBigIncoming({ id: bannerId, weapon: weaponType, attacker: attackerUsername })
+          setTimeout(() => {
+            setBigIncoming((prev) => (prev?.id === bannerId ? null : prev))
+          }, 1500)
           applyClientEffect(weaponType, duration)
         },
       )
@@ -358,16 +423,25 @@ export function MatchClient({
     }
   }
 
-  async function fireWeapon(weaponType: WeaponType) {
-    const targetId =
-      weaponType === 'shield' || weaponType === 'time_warp'
-        ? currentUserId
-        : weaponType === 'nuke'
-          ? currentUserId
-          : selectedTarget
+  async function fireWeapon(weaponType: WeaponType, overrideTargetId?: string) {
+    const isSelfTarget = weaponType === 'shield' || weaponType === 'time_warp'
+    const isNuke = weaponType === 'nuke'
+    const needsTarget = !isSelfTarget && !isNuke
+
+    const targetId = isSelfTarget || isNuke
+      ? currentUserId
+      : (overrideTargetId ?? selectedTarget)
+
+    // Arm-then-target: if a target weapon is clicked without a target, arm it
+    // (clicking the same weapon again disarms).
+    if (needsTarget && !targetId) {
+      setArmedWeapon((prev) => (prev === weaponType ? null : weaponType))
+      return
+    }
 
     if (!targetId) return
     setFiringWeapon(true)
+    setArmedWeapon(null)
 
     try {
       const res = await fetch('/api/weapons/use', {
@@ -380,8 +454,10 @@ export function MatchClient({
         addNotification(data.error?.replace(/_/g, ' ') ?? 'Failed', 'info')
       } else if (data.blocked) {
         addNotification('Target had a shield!', 'info')
+        playSound('weapon-fire')
       } else if (weaponType === 'shield') {
         addNotification('Shield activated!', 'info')
+        playSound('weapon-fire')
         setMatch((m) => ({
           ...m,
           playerStates: {
@@ -391,9 +467,11 @@ export function MatchClient({
         }))
       } else if (weaponType === 'nuke') {
         addNotification('NUKE launched!', 'incoming')
+        playSound('weapon-fire')
       } else {
         const targetName = match.players.find((p) => p.userId === targetId)?.username ?? 'target'
         addNotification(`${WEAPON_LABEL[weaponType]} fired at ${targetName}!`, 'info')
+        playSound('weapon-fire')
       }
     } catch {
       addNotification('Network error', 'info')
@@ -417,6 +495,8 @@ export function MatchClient({
         setResult(data)
         if (data.mirage) {
           addNotification('You were hit by a Mirage! That was a fake result.', 'incoming')
+        } else if (data.finished) {
+          playSound('solved')
         }
       } catch {
         setResult({
@@ -496,6 +576,7 @@ export function MatchClient({
         </div>
 
         <div className="flex items-center gap-3 min-w-0">
+          <SoundToggle />
           <Badge variant="outline" className="font-mono gap-1.5">
             <span className="text-muted-foreground text-[10px]">ROOM</span>
             <span className="font-semibold tracking-widest">{match.roomCode}</span>
@@ -508,10 +589,12 @@ export function MatchClient({
           ap={ap}
           myState={myState}
           selectedTarget={selectedTarget}
+          armedWeapon={armedWeapon}
           isOver={isOver}
           isFrozen={isFrozen || hasFreezeEffect}
           firingWeapon={firingWeapon}
           onFire={fireWeapon}
+          onDisarm={() => setArmedWeapon(null)}
         />
       )}
 
@@ -520,7 +603,16 @@ export function MatchClient({
           scoreboard={scoreboard}
           currentUserId={currentUserId}
           selectedTarget={selectedTarget}
-          onSelectTarget={(id) => setSelectedTarget((prev) => (prev === id ? null : id))}
+          armedWeapon={armedWeapon}
+          opponentHits={opponentHits}
+          onSelectTarget={(id) => {
+            // If a weapon is armed, clicking an opponent fires it.
+            if (armedWeapon) {
+              fireWeapon(armedWeapon, id)
+              return
+            }
+            setSelectedTarget((prev) => (prev === id ? null : id))
+          }}
           disableTargeting={isSpectator}
         />
 
@@ -641,6 +733,18 @@ export function MatchClient({
         </section>
       </div>
 
+      {/* Full-screen hit flash */}
+      {hitFlash && <HitFlash key={hitFlash.id} weapon={hitFlash.weapon} />}
+
+      {/* Big centered "INCOMING" banner when you get hit */}
+      {bigIncoming && (
+        <IncomingBanner
+          key={bigIncoming.id}
+          weapon={bigIncoming.weapon}
+          attacker={bigIncoming.attacker}
+        />
+      )}
+
       <div className="fixed top-4 right-4 z-50 space-y-2 pointer-events-none w-80 max-w-[calc(100vw-2rem)]">
         {notifications.map((n) => (
           <div
@@ -718,22 +822,37 @@ function Sidebar({
   scoreboard,
   currentUserId,
   selectedTarget,
+  armedWeapon,
+  opponentHits,
   onSelectTarget,
   disableTargeting = false,
 }: {
   scoreboard: Row[]
   currentUserId: string
   selectedTarget: string | null
+  armedWeapon: WeaponType | null
+  opponentHits: Record<string, number>
   onSelectTarget: (id: string) => void
   disableTargeting?: boolean
 }) {
   return (
-    <aside className="w-60 shrink-0 border-r border-border/80 bg-card/20 backdrop-blur-sm flex flex-col">
+    <aside
+      className={cn(
+        'w-60 shrink-0 border-r border-border/80 bg-card/20 backdrop-blur-sm flex flex-col',
+        armedWeapon && 'cursor-crosshair',
+      )}
+    >
       <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2">
         <Trophy className="size-3.5 text-arena-amber" />
         <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-mono">
           Live Rank
         </span>
+        {armedWeapon && (
+          <span className="ml-auto inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-arena-rose font-mono animate-pulse">
+            <Crosshair className="size-3" />
+            target
+          </span>
+        )}
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
         {scoreboard.map((row, idx) => {
@@ -742,25 +861,36 @@ function Sidebar({
           const pct = row.totalTests ? (row.testsPassed / row.totalTests) * 100 : 0
           const done = row.finishedAt !== null
           const clickable = !me && !disableTargeting
+          const isArmable = clickable && !!armedWeapon
+          const wasHit = (opponentHits[row.userId] ?? 0) > Date.now()
           return (
             <button
               key={row.userId}
               onClick={() => clickable && onSelectTarget(row.userId)}
               disabled={!clickable}
               className={cn(
-                'w-full text-left rounded-lg border transition-all p-2.5',
-                isTarget
-                  ? 'bg-destructive/15 border-destructive/70 ring-glow-rose'
-                  : done
-                    ? 'bg-arena-emerald/10 border-arena-emerald/40'
-                    : me
-                      ? 'bg-primary/10 border-primary/40'
-                      : clickable
-                        ? 'bg-card/40 border-border hover:border-destructive/50 hover:bg-destructive/5 cursor-pointer'
-                        : 'bg-card/40 border-border cursor-default',
+                'group w-full text-left rounded-lg border transition-all p-2.5 relative',
+                wasHit && 'animate-shake-hard',
+                isArmable
+                  ? 'bg-card/40 border-arena-rose/70 ring-glow-rose animate-pulse-glow cursor-crosshair hover:scale-[1.02] hover:bg-arena-rose/10'
+                  : isTarget
+                    ? 'bg-destructive/15 border-destructive/70 ring-glow-rose'
+                    : done
+                      ? 'bg-arena-emerald/10 border-arena-emerald/40'
+                      : me
+                        ? 'bg-primary/10 border-primary/40'
+                        : clickable
+                          ? 'bg-card/40 border-border hover:border-destructive/50 hover:bg-destructive/5 cursor-pointer'
+                          : 'bg-card/40 border-border cursor-default',
               )}
             >
-              <div className="flex items-center gap-2 mb-1.5">
+              {wasHit && (
+                <div className="pointer-events-none absolute inset-0 rounded-lg bg-arena-rose/30 animate-fade-in" />
+              )}
+              {isArmable && (
+                <Crosshair className="pointer-events-none absolute top-1.5 right-1.5 size-4 text-arena-rose animate-pulse" />
+              )}
+              <div className="relative flex items-center gap-2 mb-1.5">
                 <div
                   className={cn(
                     'size-5 rounded-full grid place-items-center text-[10px] font-bold font-display shrink-0',
@@ -775,20 +905,25 @@ function Sidebar({
                 >
                   {idx + 1}
                 </div>
-                {row.avatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={row.avatarUrl}
-                    alt=""
-                    className="size-6 rounded-full bg-muted/40 border border-border shrink-0"
-                  />
-                ) : (
-                  <div className="size-6 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 border border-border grid place-items-center shrink-0">
-                    <span className="text-[10px] font-bold font-display">
-                      {row.username.slice(0, 1).toUpperCase()}
-                    </span>
-                  </div>
-                )}
+                <div className="relative shrink-0">
+                  {row.hasShield && (
+                    <span className="absolute inset-0 rounded-full ring-2 ring-primary/70 animate-pulse-glow shadow-glow-sm" />
+                  )}
+                  {row.avatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={row.avatarUrl}
+                      alt=""
+                      className="size-6 rounded-full bg-muted/40 border border-border block"
+                    />
+                  ) : (
+                    <div className="size-6 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 border border-border grid place-items-center">
+                      <span className="text-[10px] font-bold font-display">
+                        {row.username.slice(0, 1).toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-medium truncate flex items-center gap-1">
                     {row.username}
@@ -808,7 +943,7 @@ function Sidebar({
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="relative flex items-center gap-2">
                 <div className="flex-1 h-1.5 rounded-full bg-muted/40 overflow-hidden">
                   <div
                     className={cn(
@@ -980,18 +1115,22 @@ function WeaponBar({
   ap,
   myState,
   selectedTarget,
+  armedWeapon,
   isOver,
   isFrozen,
   firingWeapon,
   onFire,
+  onDisarm,
 }: {
   ap: number
   myState: PlayerGameState | undefined
   selectedTarget: string | null
+  armedWeapon: WeaponType | null
   isOver: boolean
   isFrozen: boolean
   firingWeapon: boolean
   onFire: (type: WeaponType) => void
+  onDisarm: () => void
 }) {
   const now = Date.now()
   return (
@@ -1010,28 +1149,35 @@ function WeaponBar({
           const cooldownSec = onCooldown ? Math.ceil((cooldownUntil - now) / 1000) : 0
           const cantAfford = ap < config.cost
           const nukeUsed = isNuke && (myState?.nukeUsed ?? false)
-          const noTarget = needsTarget && !selectedTarget
+          const isArmed = armedWeapon === type
+          // A target weapon w/o selection is now "armable", not disabled.
           const disabled =
-            isOver || isFrozen || firingWeapon || cantAfford || onCooldown || nukeUsed || noTarget
+            isOver || isFrozen || firingWeapon || cantAfford || onCooldown || nukeUsed
 
           return (
             <button
               key={type}
               onClick={() => onFire(type)}
               disabled={disabled}
-              title={`${config.description}\nCost: ${config.cost} AP${onCooldown ? `\nCooldown: ${cooldownSec}s` : ''}`}
+              title={`${config.description}\nCost: ${config.cost} AP${onCooldown ? `\nCooldown: ${cooldownSec}s` : ''}${needsTarget ? '\nClick weapon, then click an opponent (ESC to cancel)' : ''}`}
               className={cn(
-                'group flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium border transition-all whitespace-nowrap',
+                'group relative flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium border transition-all whitespace-nowrap',
                 disabled
                   ? 'border-border/60 bg-muted/20 text-muted-foreground/60 cursor-not-allowed'
-                  : type === 'nuke'
-                    ? 'border-arena-rose/40 bg-arena-rose/5 text-arena-rose hover:bg-arena-rose/10 hover:border-arena-rose/70 hover:shadow-glow-rose'
-                    : isSelfTarget
-                      ? 'border-primary/40 bg-primary/5 text-primary hover:bg-primary/10 hover:border-primary/70 hover:shadow-glow-sm'
-                      : 'border-border bg-card/40 text-foreground hover:bg-accent hover:border-primary/40 hover:text-primary',
+                  : isArmed
+                    ? 'border-arena-rose bg-arena-rose/15 text-arena-rose shadow-glow-rose ring-glow-rose animate-pulse-glow scale-[1.04]'
+                    : type === 'nuke'
+                      ? 'border-arena-rose/40 bg-arena-rose/5 text-arena-rose hover:bg-arena-rose/10 hover:border-arena-rose/70 hover:shadow-glow-rose'
+                      : isSelfTarget
+                        ? 'border-primary/40 bg-primary/5 text-primary hover:bg-primary/10 hover:border-primary/70 hover:shadow-glow-sm'
+                        : 'border-border bg-card/40 text-foreground hover:bg-accent hover:border-primary/40 hover:text-primary',
               )}
             >
-              <Icon className="size-3.5" />
+              {isArmed ? (
+                <Crosshair className="size-3.5 animate-pulse" />
+              ) : (
+                <Icon className="size-3.5" />
+              )}
               <span>{WEAPON_LABEL[type]}</span>
               <span
                 className={cn(
@@ -1050,10 +1196,83 @@ function WeaponBar({
         },
       )}
       {!isOver && (
-        <div className="ml-auto text-[11px] text-muted-foreground font-mono whitespace-nowrap pl-4">
-          {selectedTarget ? '← pick a weapon' : '← click opponent in sidebar'}
+        <div className="ml-auto flex items-center gap-2 pl-4">
+          {armedWeapon ? (
+            <>
+              <span className="text-[11px] font-mono text-arena-rose animate-pulse whitespace-nowrap">
+                <Crosshair className="inline size-3 mr-1 -mt-0.5" />
+                {WEAPON_LABEL[armedWeapon]} armed — pick a target
+              </span>
+              <button
+                type="button"
+                onClick={onDisarm}
+                className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/50 transition-colors"
+                title="Cancel (ESC)"
+              >
+                ESC
+              </button>
+            </>
+          ) : (
+            <span className="text-[11px] text-muted-foreground font-mono whitespace-nowrap">
+              {selectedTarget ? '← pick a weapon' : 'Click a weapon, then a target'}
+            </span>
+          )}
         </div>
       )}
+    </div>
+  )
+}
+
+/* ─── Hit visuals ─── */
+
+function HitFlash({ weapon }: { weapon: WeaponType }) {
+  const color = WEAPON_FLASH[weapon]
+  return (
+    <div
+      className="pointer-events-none fixed inset-0 z-[60] animate-hit-flash"
+      style={{
+        background: `radial-gradient(ellipse at center, hsl(var(--${color}) / 0.55) 0%, hsl(var(--${color}) / 0.25) 40%, transparent 75%)`,
+      }}
+    />
+  )
+}
+
+function IncomingBanner({ weapon, attacker }: { weapon: WeaponType; attacker: string }) {
+  const Icon = WEAPON_ICON[weapon]
+  const color = WEAPON_FLASH[weapon]
+  return (
+    <div className="pointer-events-none fixed inset-x-0 top-24 z-[55] flex justify-center animate-incoming-banner">
+      <div
+        className="flex items-center gap-3 px-6 py-3 rounded-xl border-2 backdrop-blur-md shadow-2xl"
+        style={{
+          background: `hsl(var(--${color}) / 0.18)`,
+          borderColor: `hsl(var(--${color}) / 0.8)`,
+          boxShadow: `0 0 40px hsl(var(--${color}) / 0.55), inset 0 0 20px hsl(var(--${color}) / 0.25)`,
+        }}
+      >
+        <div
+          className="size-10 rounded-full grid place-items-center"
+          style={{
+            background: `hsl(var(--${color}) / 0.25)`,
+            boxShadow: `0 0 16px hsl(var(--${color}) / 0.7)`,
+            color: `hsl(var(--${color}))`,
+          }}
+        >
+          <Icon className="size-5" />
+        </div>
+        <div className="text-left">
+          <div
+            className="text-[10px] uppercase tracking-[0.3em] font-mono"
+            style={{ color: `hsl(var(--${color}))` }}
+          >
+            Incoming
+          </div>
+          <div className="font-display font-bold text-xl leading-none mt-0.5">
+            {WEAPON_LABEL[weapon]}
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-0.5">from {attacker}</div>
+        </div>
+      </div>
     </div>
   )
 }

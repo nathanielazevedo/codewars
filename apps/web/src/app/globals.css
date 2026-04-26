@@ -69,6 +69,115 @@
     background-position: center, center, center, center;
   }
 
+  .arena-bg-live {
+    position: relative;
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, hsl(var(--arena-violet) / 0.18), transparent 60%),
+      radial-gradient(ellipse 80% 50% at 50% 110%, hsl(var(--arena-cyan) / 0.12), transparent 60%),
+      linear-gradient(to right, hsl(var(--border) / 0.35) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--border) / 0.35) 1px, transparent 1px);
+    background-size: auto, auto, 48px 48px, 48px 48px;
+    animation: arena-grid-drift 24s linear infinite;
+  }
+
+  @keyframes arena-grid-drift {
+    0% {
+      background-position: center, center, 0 0, 0 0;
+    }
+    100% {
+      background-position: center, center, 48px 48px, 48px 48px;
+    }
+  }
+
+  /* Moving horizontal scanline — apply to a positioned ancestor */
+  .arena-scanline::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 30%;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      hsl(var(--arena-cyan) / 0.05) 45%,
+      hsl(var(--arena-cyan) / 0.12) 50%,
+      hsl(var(--arena-cyan) / 0.05) 55%,
+      transparent 100%
+    );
+    animation: arena-scanline-sweep 7s linear infinite;
+    mix-blend-mode: screen;
+    z-index: 0;
+  }
+  @keyframes arena-scanline-sweep {
+    0% {
+      transform: translateY(-100%);
+    }
+    100% {
+      transform: translateY(400%);
+    }
+  }
+
+  /* Slow ambient orbs that drift behind the grid */
+  .arena-orbs::before,
+  .arena-orbs::after {
+    content: '';
+    position: absolute;
+    width: 55vmax;
+    height: 55vmax;
+    pointer-events: none;
+    z-index: 0;
+    border-radius: 9999px;
+    filter: blur(90px);
+    opacity: 0.5;
+  }
+  .arena-orbs::before {
+    top: -18vmax;
+    left: -12vmax;
+    background: radial-gradient(circle, hsl(var(--arena-cyan) / 0.32), transparent 70%);
+    animation: arena-orb-a 18s ease-in-out infinite;
+  }
+  .arena-orbs::after {
+    bottom: -18vmax;
+    right: -12vmax;
+    background: radial-gradient(circle, hsl(var(--arena-violet) / 0.3), transparent 70%);
+    animation: arena-orb-b 22s ease-in-out infinite;
+  }
+  @keyframes arena-orb-a {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50%      { transform: translate(18vmax, 10vmax) scale(1.15); }
+  }
+  @keyframes arena-orb-b {
+    0%, 100% { transform: translate(0, 0) scale(1.05); }
+    50%      { transform: translate(-15vmax, -8vmax) scale(0.95); }
+  }
+
+  /* Rotating radar sweep ring — place inside a relative, rounded container */
+  .radar-sweep {
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      transparent 270deg,
+      hsl(var(--arena-cyan) / 0.15) 320deg,
+      hsl(var(--arena-cyan) / 0.55) 355deg,
+      hsl(var(--arena-cyan) / 0.85) 360deg
+    );
+    animation: radar-spin 2.4s linear infinite;
+  }
+  @keyframes radar-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+
+  .radar-sweep-slow {
+    animation-duration: 4s;
+  }
+
   .arena-grid {
     background-image:
       linear-gradient(to right, hsl(var(--border) / 0.4) 1px, transparent 1px),

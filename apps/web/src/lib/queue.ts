@@ -22,17 +22,41 @@ export type QueueChatMessage = {
 }
 
 type QueueEvent =
-  | { type: 'update'; count: number; countdownEnds: number | null }
+  | { type: 'update'; count: number; countdownEnds: number | null; players: QueuedPlayer[] }
   | { type: 'matched'; matchId: string; userIds: string[] }
   | { type: 'chat_message'; message: QueueChatMessage }
 
-async function publishUpdate(): Promise<{ count: number; countdownEnds: number | null }> {
-  const count = await redis.zcard(MEMBERS_KEY)
-  const ends = await redis.get(COUNTDOWN_KEY)
+async function listQueuePlayers(): Promise<QueuedPlayer[]> {
+  // Members are sorted by joinedAt ASC in the zset; preserve that order for the list.
+  const userIds = await redis.zrange(MEMBERS_KEY, 0, -1)
+  if (userIds.length === 0) return []
+  const rows = await redis.hmget(PLAYERS_KEY, ...userIds)
+  const out: QueuedPlayer[] = []
+  for (const row of rows) {
+    if (!row) continue
+    try {
+      out.push(JSON.parse(row) as QueuedPlayer)
+    } catch {
+      /* skip corrupt entry */
+    }
+  }
+  return out
+}
+
+async function publishUpdate(): Promise<{
+  count: number
+  countdownEnds: number | null
+  players: QueuedPlayer[]
+}> {
+  const [count, ends, players] = await Promise.all([
+    redis.zcard(MEMBERS_KEY),
+    redis.get(COUNTDOWN_KEY),
+    listQueuePlayers(),
+  ])
   const countdownEnds = ends ? Number(ends) : null
-  const ev: QueueEvent = { type: 'update', count, countdownEnds }
+  const ev: QueueEvent = { type: 'update', count, countdownEnds, players }
   await redis.publish(EVENTS_CHANNEL, JSON.stringify(ev))
-  return { count, countdownEnds }
+  return { count, countdownEnds, players }
 }
 
 export async function joinQuickmatch(
@@ -58,8 +82,8 @@ export async function joinQuickmatch(
     }
   }
 
-  const { count: newCount, countdownEnds } = await publishUpdate()
-  return { inQueue: true, count: newCount, countdownEnds }
+  const { count: newCount, countdownEnds, players } = await publishUpdate()
+  return { inQueue: true, count: newCount, countdownEnds, players }
 }
 
 export async function leaveQuickmatch(userId: string): Promise<QueueStatus> {
@@ -71,8 +95,8 @@ export async function leaveQuickmatch(userId: string): Promise<QueueStatus> {
     await redis.del(COUNTDOWN_KEY)
   }
 
-  const { count: newCount, countdownEnds } = await publishUpdate()
-  return { inQueue: false, count: newCount, countdownEnds }
+  const { count: newCount, countdownEnds, players } = await publishUpdate()
+  return { inQueue: false, count: newCount, countdownEnds, players }
 }
 
 export async function postQuickmatchChat(
@@ -117,14 +141,16 @@ export async function getQuickmatchChat(): Promise<QueueChatMessage[]> {
 }
 
 export async function quickmatchStatus(userId: string): Promise<QueueStatus> {
-  const [score, count, ends] = await Promise.all([
+  const [score, count, ends, players] = await Promise.all([
     redis.zscore(MEMBERS_KEY, userId),
     redis.zcard(MEMBERS_KEY),
     redis.get(COUNTDOWN_KEY),
+    listQueuePlayers(),
   ])
   return {
     inQueue: score !== null,
     count,
     countdownEnds: ends ? Number(ends) : null,
+    players,
   }
 }
